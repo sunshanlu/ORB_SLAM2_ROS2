@@ -1,0 +1,22 @@
+{
+    "configurations": [
+        {
+            "browse": {
+                "databaseFilename": "${default}",
+                "limitSymbolsToIncludedHeaders": false
+            },
+            "includePath": [
+                "/home/rookie-lu/Project/learn/learn_ros2/install/base_interfaces_demo/include/**",
+                "/opt/ros/foxy/include/**",
+                "/usr/include/**",
+                "${workspaceFolder}/src/ORB_SLAM2/include"
+            ],
+            "name": "ROS",
+            "intelliSenseMode": "gcc-x64",
+            "compilerPath": "/usr/bin/gcc",
+            "cStandard": "gnu11",
+            "cppStandard": "c++14"
+        }
+    ],
+    "version": 4
+}
