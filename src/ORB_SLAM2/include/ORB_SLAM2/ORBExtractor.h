@@ -41,13 +41,14 @@ struct QuadtreeNode {
 private:
     /**
      * @brief 查看关键点是否在节点区域内
-     *
+     * 这里，将节点区域上的点都放弃
+     * 由于放弃了节点区域上的点，因此在FAST角点检测中，不需要极大值抑制
      * @param kp        输入的关键点
      * @return true     代表在节点内
      * @return false    代表不在节点内
      */
     bool isIn(const cv::KeyPoint &kp) {
-        if (kp.pt.x >= mfColBegin && kp.pt.x < mfColEnd && kp.pt.y >= mfRowBegin && kp.pt.y < mfRowEnd) {
+        if (kp.pt.x > mfColBegin && kp.pt.x < mfColEnd && kp.pt.y > mfRowBegin && kp.pt.y < mfRowEnd) {
             return true;
         }
         return false;
@@ -100,6 +101,12 @@ public:
     /// 提取ORB特征点和BRIEF描述子的api
     void extract(std::vector<cv::KeyPoint> &keyPoints, cv::Mat &descriptors);
 
+    /// 获取图像金字塔api
+    const std::vector<cv::Mat> &getPyramid() const { return mvPyramids; }
+
+    /// 获取金字塔缩放因子api
+    static const std::vector<float> &getScaledFactors() { return mvfScaledFactors; }
+
 private:
     /// 根据输入的图像，提取特征点并输出
     void extractFast(int nlevel, std::vector<cv::KeyPoint> &keyPoints);
@@ -126,12 +133,11 @@ private:
     void initGrids(int nLevels);
 
     int mnFeats;                                ///< 要抽取的特征点数目
-    GridIdxLevels mvRowIdxs;                    ///< 划分网格的行索引
-    GridIdxLevels mvColIdxs;                    ///< 划分网格的列索引
     static bool mbIdxInit;                      ///< 划分网格的行列索引是否初始化
+    static GridIdxLevels mvRowIdxs;             ///< 划分网格的行索引
+    static GridIdxLevels mvColIdxs;             ///< 划分网格的列索引
     int mnMaxThresh;                            ///< FAST最大提取阈值
     int mnMinThresh;                            ///< FAST最小提取阈值
-    static int mnBorderSize;                    ///< 边界宽度 (用于限制brief的边界问题)
     static BriefTemplate mvBriefTem;            ///< BRIEF模板
     static bool mbTemInit;                      ///< 模版是否已经被初始化
     static std::vector<unsigned> mvMaxColIdx;   ///< 最大列索引值
@@ -142,6 +148,9 @@ private:
     static std::vector<float> mvfScaledFactors; ///< 图像金字塔的缩放因子
     static bool mbScaleInit;                    ///< 金字塔缩放层级是否初始化
     static std::vector<int> mvnFeatures;        ///< 图像金字塔每层需要提取的特征点数目
+
+public:
+    static int mnBorderSize; ///< 边界宽度 (用于限制brief的边界问题)
 };
 
 cv::Point2i rotateTemplate(const cv::Point2f &toRotPoint, const double &sinValue, const double &cosValue);

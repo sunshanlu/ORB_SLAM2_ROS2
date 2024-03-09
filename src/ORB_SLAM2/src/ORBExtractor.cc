@@ -315,7 +315,7 @@ void ORBExtractor::extractFast(int nlevel, std::vector<cv::KeyPoint> &keyPoints)
             unsigned colStart = mvColIdx[jdx];
             std::vector<cv::KeyPoint> pitchKps;
             auto maxDetector = cv::FastFeatureDetector::create(mnMaxThresh, true, cv::FastFeatureDetector::TYPE_9_16);
-            auto minDetector = cv::FastFeatureDetector::create(mnMinThresh, false, cv::FastFeatureDetector::TYPE_9_16);
+            auto minDetector = cv::FastFeatureDetector::create(mnMinThresh, true, cv::FastFeatureDetector::TYPE_9_16);
             maxDetector->detect(pitch, pitchKps);
             if (pitchKps.empty())
                 minDetector->detect(pitch, pitchKps);
@@ -376,7 +376,8 @@ cv::Mat ORBExtractor::computeBRIEF(std::vector<cv::KeyPoint> &keyPoints) {
         auto &keypoint = keyPoints[idx];
         auto &image = mvPyramids[keypoint.octave];
         auto &sacledFactor = mvfScaledFactors[keypoint.octave];
-        cv::Point2i point(cvRound(keypoint.pt.x / sacledFactor + 19), cvRound(keypoint.pt.y / sacledFactor + 19));
+        cv::Point2i point(cvRound(keypoint.pt.x / sacledFactor + mnBorderSize),
+                          cvRound(keypoint.pt.y / sacledFactor + mnBorderSize));
         std::vector<uchar> descriptor;
         double angle = computeBRIEF(image, point, descriptor);
         keypoint.angle = angle / M_PI * 180;
@@ -474,9 +475,9 @@ void ORBExtractor::extract(std::vector<cv::KeyPoint> &keyPoints, cv::Mat &descri
 }
 
 /// ORBExtractor的静态变量类外初始化
-ORBExtractor::GridIdxLevels mvRowIdxs;
-ORBExtractor::GridIdxLevels mvColIdxs;
 bool ORBExtractor::mbIdxInit = false;
+ORBExtractor::GridIdxLevels ORBExtractor::mvRowIdxs;
+ORBExtractor::GridIdxLevels ORBExtractor::mvColIdxs;
 ORBExtractor::BriefTemplate ORBExtractor::mvBriefTem;
 bool ORBExtractor::mbTemInit = false;
 std::vector<unsigned> ORBExtractor::mvMaxColIdx;

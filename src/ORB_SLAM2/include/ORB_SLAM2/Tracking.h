@@ -9,10 +9,11 @@ class Tracking {
 public:
     void grabFrame(Frame::SharedPtr pFrame);
 
+    /// 根据当前帧进行初始地图的初始化
     bool initForStereo();
 
 private:
     Frame::SharedPtr mpCurrFrame; ///< 当前帧
-    Frame::SharedPtr mpRefFrame;  ///< 上一帧
+    Frame::SharedPtr mpLastFrame;  ///< 上一帧
 };
 } // namespace ORB_SLAM2_ROS2
