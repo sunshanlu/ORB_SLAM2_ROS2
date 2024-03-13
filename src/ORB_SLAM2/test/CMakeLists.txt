@@ -15,3 +15,8 @@ add_executable(SearchByStereoTest ${SOURCE_FILE}
                                   ./ORBMatcherTest/SearchByStereo.cc)
 ament_target_dependencies(SearchByStereoTest rclcpp)
 target_link_libraries(SearchByStereoTest DEPEND_LIBS)
+
+# ORB特征点匹配器测试SearchByBowTest
+add_executable(SearchByBowTest ${SOURCE_FILE} ./ORBMatcherTest/SearchByBow.cc)
+ament_target_dependencies(SearchByBowTest rclcpp)
+target_link_libraries(SearchByBowTest DEPEND_LIBS)

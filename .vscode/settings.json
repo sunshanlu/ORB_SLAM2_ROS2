@@ -85,6 +85,8 @@
         "mutex": "cpp",
         "shared_mutex": "cpp",
         "condition_variable": "cpp",
-        "__mutex_base": "cpp"
+        "__mutex_base": "cpp",
+        "any": "cpp",
+        "__node_handle": "cpp"
     }
 }

@@ -9,9 +9,10 @@ include_directories(include)
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(OpenCV 3.1.0 REQUIRED)
+find_package(DBoW3 REQUIRED)
 
 add_library(DEPEND_LIBS INTERFACE)
-target_link_libraries(DEPEND_LIBS INTERFACE ${OpenCV_LIBS})
+target_link_libraries(DEPEND_LIBS INTERFACE ${OpenCV_LIBS} DBoW3)
 
 file(GLOB SOURCE_FILE src/*.cc)
 add_executable(${PROJECT_NAME} ${SOURCE_FILE})

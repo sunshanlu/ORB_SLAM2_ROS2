@@ -99,7 +99,7 @@ public:
                  int maxThreshold, int minThreshold);
 
     /// 提取ORB特征点和BRIEF描述子的api
-    void extract(std::vector<cv::KeyPoint> &keyPoints, cv::Mat &descriptors);
+    void extract(std::vector<cv::KeyPoint> &keyPoints, std::vector<cv::Mat> &descriptors);
 
     /// 获取图像金字塔api
     const std::vector<cv::Mat> &getPyramid() const { return mvPyramids; }
@@ -112,7 +112,7 @@ private:
     void extractFast(int nlevel, std::vector<cv::KeyPoint> &keyPoints);
 
     /// 利用灰度质心法，计算BRIEF描述子
-    cv::Mat computeBRIEF(std::vector<cv::KeyPoint> &keypoints);
+    std::vector<cv::Mat> computeBRIEF(std::vector<cv::KeyPoint> &keypoints);
 
     /// 计算单个特征点的BRIEF描述子
     double computeBRIEF(const cv::Mat &image, const cv::Point2i &point, std::vector<uchar> &descriptor);

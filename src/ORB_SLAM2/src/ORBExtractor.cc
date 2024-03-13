@@ -221,7 +221,7 @@ void ORBExtractor::initPyramid(const cv::Mat &image, int nLevels, float scaleFac
             mvfScaledFactors.push_back(std::pow(scaleFactor, level));
         }
         int sumFeatures = 0;
-        int nfeats = cvRound(500 * (1 - scaleFactor) / (1 - std::pow(scaleFactor, nLevels)));
+        int nfeats = cvRound(mnFeats * (1 - scaleFactor) / (1 - std::pow(scaleFactor, nLevels)));
         for (int i = nLevels - 1; i > 0; --i) {
             mvnFeatures[i] = nfeats;
             sumFeatures += nfeats;
@@ -335,7 +335,7 @@ void ORBExtractor::extractFast(int nlevel, std::vector<cv::KeyPoint> &keyPoints)
             }
         }
     }
-    if (rows * cols <= mvnFeatures[nlevel]) {
+    if (keyPoints.size() <= mvnFeatures[nlevel]) {
         throw FeatureLessError("图像中的特征点数目不够");
         return;
     }
@@ -370,9 +370,10 @@ void ORBExtractor::getPitches(const cv::Mat &image, std::vector<std::vector<cv::
  * @param keyPoints     输入的关键点集合
  * @return 描述子(cv::Mat)
  */
-cv::Mat ORBExtractor::computeBRIEF(std::vector<cv::KeyPoint> &keyPoints) {
-    cv::Mat descriptors(keyPoints.size(), 32, CV_8U);
+std::vector<cv::Mat> ORBExtractor::computeBRIEF(std::vector<cv::KeyPoint> &keyPoints) {
+    std::vector<cv::Mat> descriptors;
     for (int idx = 0; idx < keyPoints.size(); ++idx) {
+        cv::Mat descriptorCV(1, 32, CV_8U);
         auto &keypoint = keyPoints[idx];
         auto &image = mvPyramids[keypoint.octave];
         auto &sacledFactor = mvfScaledFactors[keypoint.octave];
@@ -382,7 +383,8 @@ cv::Mat ORBExtractor::computeBRIEF(std::vector<cv::KeyPoint> &keyPoints) {
         double angle = computeBRIEF(image, point, descriptor);
         keypoint.angle = angle / M_PI * 180;
         for (int i = 0; i < 32; ++i)
-            descriptors.at<uchar>(idx, i) = descriptor[i];
+            descriptorCV.at<uchar>(0, i) = descriptor[i];
+        descriptors.push_back(descriptorCV);
     }
     return descriptors;
 }
@@ -458,7 +460,7 @@ double ORBExtractor::getGrayCentroid(const cv::Mat &image, const cv::Point2i &po
  * @param keyPoints     输出的特征点
  * @param descriptors   输出的描述子（cv::Mat）
  */
-void ORBExtractor::extract(std::vector<cv::KeyPoint> &keyPoints, cv::Mat &descriptors) {
+void ORBExtractor::extract(std::vector<cv::KeyPoint> &keyPoints, std::vector<cv::Mat> &descriptors) {
     std::vector<cv::KeyPoint> fastKps;
     for (int level = 0; level < mnLevels; ++level) {
         std::vector<cv::KeyPoint> levelKps;

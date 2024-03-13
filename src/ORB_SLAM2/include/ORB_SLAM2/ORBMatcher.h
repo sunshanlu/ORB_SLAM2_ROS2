@@ -6,17 +6,31 @@
 
 namespace ORB_SLAM2_ROS2 {
 class Frame;
+class KeyFrame;
 
 class ORBMatcher {
 public:
     typedef std::vector<std::vector<std::size_t>> RowIdxDB;
     typedef std::pair<std::size_t, int> BestMatchDesc;
     typedef std::shared_ptr<ORBMatcher> SharedPtr;
+    typedef std::shared_ptr<Frame> FramePtr;
+    typedef std::shared_ptr<KeyFrame> KeyFramePtr;
+    typedef std::vector<std::vector<cv::DMatch>> HistBin;
+
+    /// 匹配器构造，传入匹配比例和是否检查方向
+    ORBMatcher(float ratio = 0.6, bool checkOri = true)
+        : mfRatio(ratio)
+        , mbCheckOri(checkOri) {}
 
     /// 利用双目图像进行搜索匹配
-    int searchByStereo(Frame* pFrame);
+    int searchByStereo(FramePtr pFrame);
 
-    ORBMatcher() = default;
+    /// 利用词袋加速匹配（跟踪参考关键帧，注意保留已经匹配成功的地图点）
+    int searchByBow(FramePtr pFrame, KeyFramePtr pKframe, std::vector<cv::DMatch> &matches);
+
+    /// 展示匹配结果
+    static void showMatches(const cv::Mat &image1, const cv::Mat &image2, const std::vector<cv::KeyPoint> &keypoint1,
+                            const std::vector<cv::KeyPoint> &keypoint2, const std::vector<cv::DMatch> &matches);
 
 private:
     /// 精确匹配
@@ -27,17 +41,21 @@ private:
     static float SAD(const cv::Mat &image1, const cv::Mat &image2);
 
     /// 创建行索引数据库
-    static RowIdxDB createRowIndexDB(Frame* pFrame);
+    static RowIdxDB createRowIndexDB(Frame *pFrame);
 
     /// 计算BRIEF描述子之间的距离（斯坦福大学的二进制统计算法）
     static int descDistance(const cv::Mat &a, const cv::Mat &b);
 
     /// 获取最佳匹配
-    static BestMatchDesc getBestMatch(cv::Mat &desc, const cv::Mat &candidateDesc,
-                                      const std::vector<size_t> &candidateIdx);
+    static BestMatchDesc getBestMatch(const cv::Mat &desc, const std::vector<cv::Mat> &candidateDesc,
+                                      const std::vector<size_t> &candidateIdx, float &ratio);
 
     /// 获取图像金字塔图像中的图像块
     static bool getPitch(cv::Mat &pitch, const cv::Mat &pyImg, const cv::KeyPoint &kp, int L);
+
+    /// 使用角度一致性验证（直方图法）
+    static void verifyAngle(std::vector<cv::DMatch> &matches, const std::vector<cv::KeyPoint> &keyPoints1,
+                            const std::vector<cv::KeyPoint> &keyPoints2);
 
 public:
     static int mnMaxThreshold;  /// BRIEF最大距离阈值
@@ -45,6 +63,12 @@ public:
     static int mnMeanThreshold; /// BRIEF平均距离阈值
     static int mnW;             ///< 窗口的宽度
     static int mnL;             ///< 窗口的单侧滑动像素
+    static int mnBinNum;        ///< 直方图bin的个数
+    static int mnBinChoose;     ///< 选择直方图的个数
+
+private:
+    float mfRatio;   ///< 最佳比次最佳的比例
+    bool mbCheckOri; ///< 是否进行旋转一致性验证
 };
 
 } // namespace ORB_SLAM2_ROS2
