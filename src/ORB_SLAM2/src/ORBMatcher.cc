@@ -91,8 +91,8 @@ int ORBMatcher::searchByBow(Frame::SharedPtr pFrame, KeyFrame::SharedPtr pKframe
             ++pfI;
         else {
             for (const auto &pId : pfI->second) {
-                const auto &pMp = pFrame->mvpMapPoints[pId];
-                if (pMp && !pMp->isBad())
+                const auto &pMpFrame = pFrame->mvpMapPoints[pId];
+                if (pMpFrame && !pMpFrame->isBad())
                     continue;
                 const auto &fDesc = pFrame->mvLeftDescriptor.at(pId);
                 std::vector<std::size_t> candidateIds;
@@ -118,7 +118,85 @@ int ORBMatcher::searchByBow(Frame::SharedPtr pFrame, KeyFrame::SharedPtr pKframe
     if (mbCheckOri) {
         verifyAngle(matches, pFrame->mvFeatsLeft, pKframe->mvFeatsLeft);
     }
+    setMapPoints(pFrame->mvpMapPoints, pKframe->mvpMapPoints, matches);
     return matches.size();
+}
+
+/**
+ * @brief 恒速模型跟踪中的重投影匹配方法
+ * @details
+ *      1. 在重投影匹配前，需要根据恒速模型确定pFrame1的位姿
+ *      2. 与ORB-SLAM2不同的是，这里没有对地图点进行筛选（因为位姿并不准确，为了增加跟踪鲁棒性）
+ * @param pFrame1 输入的待匹配的帧
+ * @param pFrame2 输入的参与匹配的帧
+ * @param th      输入的寻找匹配的阈值大小
+ * @return int  输出的匹配成功的个数
+ */
+int ORBMatcher::searchByProjection(Frame::SharedPtr pFrame1, Frame::SharedPtr pFrame2, std::vector<cv::DMatch> &matches,
+                                   float th) {
+    assert(!pFrame1->mTcw.empty() && !pFrame2->mTcw.empty() && "pFrame1或pFrame的位姿为空");
+    /// 判断前进或后退
+    cv::Mat tlc = pFrame2->mRcw * pFrame1->mtwc + pFrame2->mtcw;
+    float z = tlc.at<float>(2, 0);
+    float zabs = std::abs(z);
+    bool up = false, down = false;
+    if (zabs > Camera::mfBl)
+        z > 0 ? up = true : down = true;
+    for (std::size_t idx = 0; idx < pFrame2->mvFeatsLeft.size(); ++idx) {
+        MapPoint::SharedPtr pMp2 = pFrame2->mvpMapPoints[idx];
+        if (!pMp2 || pMp2->isBad()) {
+            continue;
+        }
+        std::vector<std::size_t> candidateIdx;
+        const auto &feature = pFrame2->mvFeatsLeft[idx];
+        const auto &desc = pFrame2->mvLeftDescriptor[idx];
+        if (up) {
+            candidateIdx = pFrame1->findFeaturesInArea(feature, th, feature.octave, 7);
+        } else if (down) {
+            candidateIdx = pFrame1->findFeaturesInArea(feature, th, 0, feature.octave);
+        } else {
+            int minOctave = std::max(0, feature.octave - 1);
+            int maxOctave = std::min(feature.octave + 1, 7);
+            candidateIdx = pFrame1->findFeaturesInArea(feature, th, minOctave, maxOctave);
+        }
+        if (candidateIdx.empty()) {
+            continue;
+        }
+        std::vector<std::size_t> newCandidates;
+
+        std::copy_if(candidateIdx.begin(), candidateIdx.end(), std::back_inserter(newCandidates),
+                     [&](const std::size_t &candidateID) {
+                         MapPoint::SharedPtr pMp1 = pFrame1->mvpMapPoints[candidateID];
+                         if (pMp1 && !pMp1->isBad())
+                             return false;
+                         return true;
+                     });
+        float ratio = 0.f;
+        auto bestMatches = getBestMatch(desc, pFrame1->mvLeftDescriptor, newCandidates, ratio);
+        if (ratio < mfRatio && bestMatches.second < mnMinThreshold) {
+            matches.emplace_back(bestMatches.first, idx, bestMatches.second);
+        }
+    }
+    setMapPoints(pFrame1->mvpMapPoints, pFrame2->mvpMapPoints, matches);
+    return matches.size();
+}
+
+/**
+ * @brief 设置成功匹配的地图点
+ * 
+ * @param toMatchMps    待匹配帧的地图点
+ * @param matchMps      参与匹配的地图点
+ * @param matches       匹配成功后对应的id
+ */
+void ORBMatcher::setMapPoints(MapPoints &toMatchMps, MapPoints &matchMps, const Matches &matches) {
+    for (const auto &dmatch : matches) {
+        auto &matchPMp = matchMps[dmatch.trainIdx];
+        if (matchPMp && !matchPMp->isBad()) {
+            toMatchMps[dmatch.queryIdx] = matchPMp;
+        } else {
+            matchPMp = nullptr;
+        }
+    }
 }
 
 /**
@@ -276,8 +354,8 @@ ORBMatcher::BestMatchDesc ORBMatcher::getBestMatch(const cv::Mat &desc, const st
  */
 bool ORBMatcher::getPitch(cv::Mat &pitch, const cv::Mat &pyImg, const cv::KeyPoint &kp, int L) {
     const auto &scaleFactors = ORBExtractor::getScaledFactors();
-    int x = cvCeil(kp.pt.x / scaleFactors[kp.octave]) + ORBExtractor::mnBorderSize + L;
-    int y = cvCeil(kp.pt.y / scaleFactors[kp.octave]) + ORBExtractor::mnBorderSize;
+    int x = cvFloor(kp.pt.x / scaleFactors[kp.octave]) + ORBExtractor::mnBorderSize + L;
+    int y = cvFloor(kp.pt.y / scaleFactors[kp.octave]) + ORBExtractor::mnBorderSize;
     if (x < ORBExtractor::mnBorderSize || x > pyImg.cols - ORBExtractor::mnBorderSize - 1)
         return false;
 
@@ -358,5 +436,6 @@ int ORBMatcher::mnW = 5;
 int ORBMatcher::mnL = 5;
 int ORBMatcher::mnBinNum = 30;
 int ORBMatcher::mnBinChoose = 3;
+int ORBMatcher::mnFarParam = 40;
 
 } // namespace ORB_SLAM2_ROS2

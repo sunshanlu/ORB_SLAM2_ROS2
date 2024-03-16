@@ -9,9 +9,9 @@ namespace ORB_SLAM2_ROS2 {
  * @param pKf       观测的关键帧
  * @param featId    关键帧对应特征点的id
  */
-void MapPoint::addObservation(KeyFrame *pKf, std::size_t featId) {
-    assert(pKf && "关键帧为空");
-    mObs.insert(std::make_pair(pKf, featId));
+void MapPoint::addObservation(KeyFrameWeakPtr pKf, std::size_t featId) {
+    assert(pKf.lock() && "关键帧为空");
+    mObs.push_back(std::make_pair(pKf, featId));
 }
 
 /**
@@ -21,7 +21,7 @@ void MapPoint::addObservation(KeyFrame *pKf, std::size_t featId) {
  * @return false    判断内点，不会删除
  */
 bool MapPoint::isBad() const {
-    std::unique_lock<std::mutex>(mBadMutex);
+    std::unique_lock<std::mutex> lock(mBadMutex);
     return mbIsBad;
 }
 

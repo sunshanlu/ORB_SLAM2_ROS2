@@ -20,3 +20,13 @@ target_link_libraries(SearchByStereoTest DEPEND_LIBS)
 add_executable(SearchByBowTest ${SOURCE_FILE} ./ORBMatcherTest/SearchByBow.cc)
 ament_target_dependencies(SearchByBowTest rclcpp)
 target_link_libraries(SearchByBowTest DEPEND_LIBS)
+
+# 优化器测试OptimizePoseOnlyTest
+add_executable(OptimizePoseOnlyTest ${SOURCE_FILE} ./OptimizerTest/OptimizePoseOnly.cc)  
+ament_target_dependencies(OptimizePoseOnlyTest rclcpp)
+target_link_libraries(OptimizePoseOnlyTest DEPEND_LIBS)
+
+# ORB特征点匹配器测试SearchByProjection中的恒速模型匹配
+add_executable(SearchByProjectionMMTest ${SOURCE_FILE} ./ORBMatcherTest/SearchByProjectionMM.cc)
+ament_target_dependencies(SearchByProjectionMMTest rclcpp)
+target_link_libraries(SearchByProjectionMMTest DEPEND_LIBS)

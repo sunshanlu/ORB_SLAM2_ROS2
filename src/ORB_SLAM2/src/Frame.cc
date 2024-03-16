@@ -1,6 +1,7 @@
 #include "ORB_SLAM2/Frame.h"
 #include "ORB_SLAM2/Camera.h"
 #include "ORB_SLAM2/Error.h"
+#include "ORB_SLAM2/KeyFrame.h"
 
 namespace ORB_SLAM2_ROS2 {
 
@@ -36,7 +37,11 @@ void Frame::showStereoMatches() const {
 
 /**
  * @brief 普通帧的构造函数
- *
+ * @details
+ *      1. 多线程特征提取
+ *      2. 金字塔缩放因子初始化
+ *      3. 地图点长度初始化
+ *      4. 特征点网格库建立
  * @param leftImg   左图图像
  * @param rightImg  右图图像
  * @param nFeatures 需要的特征点数
@@ -46,9 +51,14 @@ void Frame::showStereoMatches() const {
  */
 Frame::Frame(cv::Mat leftImg, cv::Mat rightImg, int nFeatures, const std::string &briefFp, int maxThresh, int minThresh)
     : mLeftIm(leftImg)
-    , mRightIm(rightImg) {
+    , mRightIm(rightImg)
+    , VirtualFrame(leftImg.cols, leftImg.rows) {
     mpExtractorLeft = std::make_shared<ORBExtractor>(mLeftIm, nFeatures, 8, 1.2, briefFp, maxThresh, minThresh);
     mpExtractorRight = std::make_shared<ORBExtractor>(mRightIm, nFeatures, 8, 1.2, briefFp, maxThresh, minThresh);
+    if (!mbScaled) {
+        mvfScaledFactors = mpExtractorLeft->getScaledFactors();
+        mbScaled = true;
+    }
 
     std::thread leftThread(
         std::bind(&ORBExtractor::extract, mpExtractorLeft.get(), std::ref(mvFeatsLeft), std::ref(mvLeftDescriptor)));
@@ -59,6 +69,20 @@ Frame::Frame(cv::Mat leftImg, cv::Mat rightImg, int nFeatures, const std::string
     leftThread.join();
     rightThread.join();
     mvpMapPoints.resize(mvFeatsLeft.size(), nullptr);
+
+    int rows = cvCeil((float)leftImg.rows / mnGridHeight);
+    int cols = cvCeil((float)leftImg.cols / mnGridWidth);
+
+    mGrids.resize(rows);
+    for (auto &grid : mGrids)
+        grid.resize(cols);
+
+    for (std::size_t idx = 0; idx < mvFeatsLeft.size(); ++idx) {
+        auto &feat = mvFeatsLeft[idx];
+        std::size_t rowIdx = cvFloor(feat.pt.y / mnGridHeight);
+        std::size_t colIdx = cvFloor(feat.pt.x / mnGridWidth);
+        mGrids[rowIdx][colIdx].push_back(idx);
+    }
     mnID = mnNextID;
 }
 
@@ -103,7 +127,75 @@ cv::Mat Frame::unProject(std::size_t idx) {
     return p3dC;
 }
 
+/**
+ * @brief 给定区域，寻找特征点
+ *
+ * @param kp        输入的关键点信息
+ * @param radius    输入的初步搜索半径（会根据特征点的金字塔层级调整）
+ * @param minNLevel 输入的最小金字塔层级（包含）
+ * @param maxNLevel 输入的最大金字塔层级（包含）
+ * @return std::vector<std::size_t> 输出符合要求的特征点索引
+ */
+std::vector<std::size_t> VirtualFrame::findFeaturesInArea(const cv::KeyPoint &kp, float radius, int minNLevel,
+                                                          int maxNLevel) {
+    std::vector<std::size_t> vFeatures;
+    radius = radius * getScaledFactor2(kp.octave);
+    int minX = std::max(0, cvRound(kp.pt.x - radius));
+    int maxX = std::min((int)mnMaxU, cvRound(kp.pt.x + radius));
+    int minY = std::max(0, cvRound(kp.pt.y - radius));
+    int maxY = std::min((int)mnMaxV, cvRound(kp.pt.y + radius));
+    int minColID = cvFloor((float)minX / mnGridWidth);
+    int maxColID = cvFloor((float)maxX / mnGridWidth);
+    int minRowID = cvFloor((float)minY / mnGridHeight);
+    int maxRowID = cvFloor((float)maxY / mnGridHeight);
+    for (std::size_t rowID = minRowID; rowID <= maxRowID; ++rowID) {
+        for (std::size_t colID = minColID; colID <= maxColID; ++colID) {
+            for (const auto &featID : mGrids[rowID][colID]) {
+                int octave = mvFeatsLeft[featID].octave;
+                if (octave <= maxNLevel && octave >= minNLevel)
+                    vFeatures.push_back(featID);
+            }
+        }
+    }
+    return vFeatures;
+}
+
+/**
+ * @brief 将世界坐标系下的3d点投影到像素坐标系下
+ * 
+ * @param p3dW 
+ * @return cv::Point2f 
+ */
+cv::Point2f VirtualFrame::project2UV(const cv::Mat &p3dW, bool &isPositive) {
+    cv::Mat p3dC;
+    cv::Point2f point;
+    {
+        std::unique_lock<std::mutex> lock(mPoseMutex);
+        p3dC = mRcw * p3dW + mtcw;
+    }
+    float z = p3dC.at<float>(2, 0);
+    point.x = p3dC.at<float>(0, 0) / z * Camera::mfFx + Camera::mfCx;
+    point.y = p3dC.at<float>(1, 0) / z * Camera::mfFy + Camera::mfCy;
+    return point;
+}
+
+/**
+ * @brief 参考关键帧，就是基于哪个关键帧做的位姿优化
+ * @details
+ *      1. 恒速模型跟踪：参考关键帧就是上一帧的参考关键帧
+ *      2. 跟踪参考关键帧：跟踪线程最新创建的关键帧
+ *      3. 跟踪局部地图：变成和自己共视程度最高的关键帧
+ * @return KeyFrame::SharedPtr 返回参考关键帧
+ */
+KeyFrame::SharedPtr Frame::getRefKF(){
+    return mpRefKF;
+}
+
 std::string VirtualFrame::msVoc = "/home/rookie-lu/Project/ORB-SLAM2/ORB-SLAM2-ROS2/Vocabulary/ORBvoc.txt";
 VirtualFrame::VocabPtr VirtualFrame::mpVoc = std::make_shared<DBoW3::Vocabulary>(VirtualFrame::msVoc);
+std::vector<float> VirtualFrame::mvfScaledFactors;
+bool VirtualFrame::mbScaled = false;
 std::size_t Frame::mnNextID = 0;
+unsigned VirtualFrame::mnGridHeight = 48;
+unsigned VirtualFrame::mnGridWidth = 64;
 } // namespace ORB_SLAM2_ROS2

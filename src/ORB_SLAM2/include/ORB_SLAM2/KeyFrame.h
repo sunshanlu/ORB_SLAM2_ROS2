@@ -42,11 +42,6 @@ private:
     KeyFrame(const VirtualFrame &vFrame)
         : VirtualFrame(vFrame) {
         mnId = mnNextId;
-        for (std::size_t idx = 0; idx < mvpMapPoints.size(); ++idx) {
-            MapPoint::SharedPtr pMp = mvpMapPoints[idx];
-            if (pMp)
-                pMp->addObservation(this, idx);
-        }
     }
 
     static std::size_t mnNextId;        ///< 下一个关键帧的id
