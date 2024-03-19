@@ -35,6 +35,9 @@ public:
     /// 恒速模型中的重投影匹配
     int searchByProjection(FramePtr pFrame1, FramePtr pFrame2, std::vector<cv::DMatch> &matches, float th);
 
+    /// 跟踪局部地图中的重投影匹配
+    int searchByProjection(FramePtr pframe, const std::vector<MapPointPtr> &mapPoints, float th);
+
     /// 展示匹配结果
     static void showMatches(const cv::Mat &image1, const cv::Mat &image2, const std::vector<cv::KeyPoint> &keypoint1,
                             const std::vector<cv::KeyPoint> &keypoint2, const std::vector<cv::DMatch> &matches);

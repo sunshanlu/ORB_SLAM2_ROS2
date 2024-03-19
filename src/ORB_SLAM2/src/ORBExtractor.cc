@@ -230,6 +230,7 @@ void ORBExtractor::initPyramid(const cv::Mat &image, int nLevels, float scaleFac
         mvnFeatures[0] = mnFeats - sumFeatures;
         mbScaleInit = true;
         mnLevels = nLevels;
+        mfScaledFactor = scaleFactor;
     }
     // 这里首先都是拿原图做了缩放，然后添加了19的边框
     image.copyTo(mvPyramids[0]);
@@ -490,6 +491,7 @@ bool ORBExtractor::mbScaleInit = false;
 int ORBExtractor::mnLevels;
 std::vector<int> ORBExtractor::mvnFeatures;
 int ORBExtractor::mnBorderSize = 19;
+float ORBExtractor::mfScaledFactor;
 
 /**
  * @brief BRIEF点的旋转函数

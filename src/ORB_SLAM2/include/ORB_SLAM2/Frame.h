@@ -21,10 +21,15 @@ class VirtualFrame {
 public:
     typedef std::shared_ptr<DBoW3::Vocabulary> VocabPtr;
     typedef std::vector<std::vector<std::vector<std::size_t>>> GridsType;
+    typedef std::shared_ptr<KeyFrame> KeyFramePtr;
+    typedef std::shared_ptr<MapPoint> MapPointPtr;
 
     VirtualFrame(unsigned width, unsigned height)
         : mnMaxU(width)
-        , mnMaxV(height) {}
+        , mnMaxV(height) {
+        mTcw = cv::Mat::eye(4, 4, CV_32F);
+        mTwc = cv::Mat::eye(4, 4, CV_32F);
+    }
 
     VirtualFrame(const VirtualFrame &other)
         : mvFeatsLeft(other.mvFeatsLeft)
@@ -54,6 +59,12 @@ public:
         other.mTcw.copyTo(mTcw);
     }
 
+    /// 获取与当前帧相连的关键帧，且共视权重大于等于th
+    virtual std::vector<KeyFramePtr> getConnectedKfs(int th);
+
+    /// 获取this的地图点信息
+    virtual std::vector<MapPointPtr> &getMapPoints();
+
     /// 将世界坐标系下地图点投影到this的像素坐标系中
     cv::Point2f project2UV(const cv::Mat &p3dW, bool &isPositive);
 
@@ -72,6 +83,8 @@ public:
         pose.rowRange(0, 3).col(3).copyTo(mtcw);
         mRwc = mRcw.t();
         mtwc = -mRwc * mtcw;
+        mRwc.copyTo(mTwc(cv::Range(0, 3), cv::Range(0, 3)));
+        mtwc.copyTo(mTwc(cv::Range(0, 3), cv::Range(3, 4)));
     }
 
     /**
@@ -86,6 +99,10 @@ public:
     /// 获取帧中图像金字塔的缩放层级
     float getScaledFactor(const int &nLevel) const { return mvfScaledFactors[nLevel]; }
 
+    /// 获取左右帧ORB特征点api
+    const std::vector<cv::KeyPoint> &getLeftKeyPoints() const { return mvFeatsLeft; }
+    const std::vector<cv::KeyPoint> &getRightKeyPoints() const { return mvFeatsRight; }
+
     /// 获取金字塔缩放因子的平方
     float getScaledFactor2(const int &nLevel) const { return std::pow(getScaledFactor(nLevel), 2); }
 
@@ -95,12 +112,30 @@ public:
     /// 获取金字塔缩放因子倒数的平方
     float getScaledFactorInv2(const int &nLevel) const { return std::pow(getScaledFactorInv(nLevel), 2); }
 
+    /// 计算词袋
     void computeBow() {
         mpVoc->transform(mvLeftDescriptor, mBowVec, mFeatVec, 3);
         mbBowComputed = true;
     }
 
+    /// 获取是否已经计算过词袋了
     bool isBowComputed() const { return mbBowComputed; }
+
+    /// 获取描述子
+    std::vector<cv::Mat> &getDescriptor() { return mvLeftDescriptor; }
+    const std::vector<cv::Mat> &getDescriptor() const { return mvLeftDescriptor; }
+
+    /// 获取帧光心位置（世界坐标系下）
+    cv::Mat getFrameCenter() const {
+        std::unique_lock<std::mutex> lock(mPoseMutex);
+        return mtwc.clone();
+    }
+
+    /// 获取Twc
+    cv::Mat getPoseInv() {
+        std::unique_lock<std::mutex> lock(mPoseMutex);
+        return mTwc.clone();
+    }
 
     virtual ~VirtualFrame() = default;
 
@@ -118,7 +153,7 @@ protected:
     static std::string msVoc;                      ///< 字典词袋路径
     static VocabPtr mpVoc;                         ///< 字典词袋
     mutable std::mutex mPoseMutex;                 ///< 位姿互斥锁
-    cv::Mat mTcw;                                  ///< 帧位姿
+    cv::Mat mTcw, mTwc;                            ///< 帧位姿
     cv::Mat mRcw, mRwc;                            ///< 位姿的旋转矩阵
     cv::Mat mtcw, mtwc;                            ///< 位姿的平移向量
     static std::vector<float> mvfScaledFactors;    ///< 特征点缩放因子
@@ -126,10 +161,14 @@ protected:
     static unsigned mnGridHeight;                  ///< 网格高度
     static unsigned mnGridWidth;                   ///< 网格宽度
     GridsType mGrids;                              ///< 网格（第一层为行，第二层为列）
-    unsigned mnMaxU;                               ///< 图像宽度
-    unsigned mnMaxV;                               ///< 图像高度
+    KeyFramePtr mpRefKF;                           ///< 普通帧的参考关键帧
+
+public:
+    unsigned mnMaxU; ///< 图像宽度
+    unsigned mnMaxV; ///< 图像高度
 };
 
+/// 普通帧
 class Frame : public VirtualFrame {
     friend class ORBMatcher;
     friend class Optimizer;
@@ -138,7 +177,7 @@ public:
     typedef std::shared_ptr<Frame> SharedPtr;
     typedef std::shared_ptr<KeyFrame> KeyFramePtr;
 
-    // 普通帧的工厂模式，用于普通帧的创建
+    /// 普通帧的工厂模式，用于普通帧的创建
     static Frame::SharedPtr create(cv::Mat leftImg, cv::Mat rightImg, int nFeatures, const std::string &briefFp,
                                    int maxThresh, int minThresh) {
         Frame *f = new Frame(leftImg, rightImg, nFeatures, briefFp, maxThresh, minThresh);
@@ -153,19 +192,15 @@ public:
     Frame &operator=(const Frame &) = delete;
     ~Frame() = default;
 
-    // 获取左右帧图像api
+    /// 获取左右帧图像api
     const cv::Mat &getLeftImage() const { return mLeftIm; }
     const cv::Mat &getRightImage() const { return mRightIm; }
 
-    // 获取图像金字塔api
+    /// 获取图像金字塔api
     const std::vector<cv::Mat> &getLeftPyramid() const { return mpExtractorLeft->getPyramid(); }
     const std::vector<cv::Mat> &getRightPyramid() const { return mpExtractorRight->getPyramid(); }
 
-    // 获取左右帧ORB特征点api
-    const std::vector<cv::KeyPoint> &getLeftKeyPoints() const { return mvFeatsLeft; }
-    const std::vector<cv::KeyPoint> &getRightKeyPoints() const { return mvFeatsRight; }
-
-    // 获取左右帧ORB描述子api
+    /// 获取左右帧ORB描述子api
     const std::vector<cv::Mat> &getLeftDescriptor() const { return mvLeftDescriptor; }
     const std::vector<cv::Mat> &getRightDescriptor() const { return mRightDescriptor; }
 
@@ -194,6 +229,5 @@ private:
     int mnN;                                  ///< 帧中有深度的地图点
     ORBExtractor::SharedPtr mpExtractorLeft;  ///< 左图特征提取器
     ORBExtractor::SharedPtr mpExtractorRight; ///< 右图特征提取器
-    KeyFramePtr mpRefKF;                      ///< 普通帧的参考关键帧
 };
 } // namespace ORB_SLAM2_ROS2

@@ -30,8 +30,8 @@ int ORBMatcher::searchByStereo(Frame::SharedPtr pFrame) {
     RowIdxDB rowIdxDB = ORBMatcher::createRowIndexDB(pFrame.get());
     for (std::size_t ldx = 0; ldx < leftKeyPoints.size(); ++ldx) {
         const auto &lKp = leftKeyPoints[ldx];
-        int maxU = cvRound(lKp.pt.x - 0);
-        int minU = std::max(0, cvRound(lKp.pt.x - Camera::mfFx));
+        float maxU = lKp.pt.x - 0;
+        float minU = std::max(0.f, lKp.pt.x - Camera::mfFx);
         cv::Mat lDesc = leftDesc.at(ldx);
         const auto &rKpIds = rowIdxDB[cvRound(lKp.pt.y)];
         std::vector<std::size_t> candidateIdx;
@@ -58,6 +58,7 @@ int ORBMatcher::searchByStereo(Frame::SharedPtr pFrame) {
         rightU = std::max(0.f, rightU);
         rightU = std::min(rightU, (float)rightPyramids[0].cols - 1);
         pFrame->mvFeatsRightU[ldx] = rightU;
+        assert(std::abs(lKp.pt.x - rightU) > 1e-2);
         pFrame->mvDepths[ldx] = Camera::mfBf / (lKp.pt.x - rightU);
         ++nMatches;
     }
@@ -167,8 +168,10 @@ int ORBMatcher::searchByProjection(Frame::SharedPtr pFrame1, Frame::SharedPtr pF
         std::copy_if(candidateIdx.begin(), candidateIdx.end(), std::back_inserter(newCandidates),
                      [&](const std::size_t &candidateID) {
                          MapPoint::SharedPtr pMp1 = pFrame1->mvpMapPoints[candidateID];
-                         if (pMp1 && !pMp1->isBad())
+                         if (pMp1 && !pMp1->isBad()) {
+                             pMp1->addMatchInTrack();
                              return false;
+                         }
                          return true;
                      });
         float ratio = 0.f;
@@ -182,8 +185,54 @@ int ORBMatcher::searchByProjection(Frame::SharedPtr pFrame1, Frame::SharedPtr pF
 }
 
 /**
+ * @brief 跟踪局部地图中使用的重投影方法
+ * @details
+ *      1. 筛选半径需要考虑观测的方向，cos(theta) < 0.998，半径为2.5
+ *      2. 筛选半径需要考虑金字塔层级，以金字塔的缩放因子作为标准差
+ * @param pframe    待匹配的普通帧
+ * @param mapPoints 参与匹配的局部地图中的地图点
+ * @param th        最终产生的搜索半径后，需要乘的倍数
+ * @return int      输出产生匹配的个数（新增的 + 已有的）
+ */
+int ORBMatcher::searchByProjection(Frame::SharedPtr pframe, const std::vector<MapPoint::SharedPtr> &mapPoints,
+                                   float th) {
+    int nMatches = 0;
+    auto &pFrameMapPoints = pframe->getMapPoints();
+    std::for_each(pFrameMapPoints.begin(), pFrameMapPoints.end(), [&](MapPoint::SharedPtr pMp) {
+        if (pMp && !pMp->isBad())
+            ++nMatches;
+    });
+    for (const auto &pMp : mapPoints) {
+        if (!pMp || pMp->isBad())
+            continue;
+        float distance, cosTheta;
+        cv::KeyPoint kp;
+        if (!pMp->isInVision(pframe, distance, kp.pt, cosTheta))
+            continue;
+        kp.octave = pMp->predictLevel(distance);
+        float radius = cosTheta < 0.998f ? 2.5f : 4.0f;
+        int minLevel = std::max(0, kp.octave - 1);
+        int maxLevel = std::min(ORBExtractor::mnLevels - 1, kp.octave + 1);
+        auto candidateIdx = pframe->findFeaturesInArea(kp, radius, minLevel, maxLevel);
+        if (candidateIdx.empty())
+            continue;
+        float fRatio;
+        auto bestMatch = getBestMatch(pMp->getDesc(), pframe->getLeftDescriptor(), candidateIdx, fRatio);
+        if (bestMatch.second < mnMinThreshold && fRatio < mfRatio) {
+            auto &pMpInF = pframe->getMapPoints()[bestMatch.first];
+            if (!pMpInF || pMpInF->isBad()) {
+                pMpInF = pMp;
+                ++nMatches;
+            }
+            pMpInF->addMatchInTrack();
+        }
+    }
+    return nMatches;
+}
+
+/**
  * @brief 设置成功匹配的地图点
- * 
+ *
  * @param toMatchMps    待匹配帧的地图点
  * @param matchMps      参与匹配的地图点
  * @param matches       匹配成功后对应的id
@@ -192,6 +241,7 @@ void ORBMatcher::setMapPoints(MapPoints &toMatchMps, MapPoints &matchMps, const 
     for (const auto &dmatch : matches) {
         auto &matchPMp = matchMps[dmatch.trainIdx];
         if (matchPMp && !matchPMp->isBad()) {
+            matchPMp->addMatchInTrack();
             toMatchMps[dmatch.queryIdx] = matchPMp;
         } else {
             matchPMp = nullptr;

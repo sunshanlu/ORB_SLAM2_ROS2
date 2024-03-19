@@ -13,26 +13,30 @@ int main() {
     std::string kfLeftFp = "/media/rookie-lu/DATA1/Dataset/KITTI-ODOM/00/image_0/000000.png";
     std::string kfRightFp = "/media/rookie-lu/DATA1/Dataset/KITTI-ODOM/00/image_1/000000.png";
     std::string briefFp = "/home/rookie-lu/Project/ORB-SLAM2/ORB-SLAM2-ROS2/config/BRIEF_TEMPLATE.txt";
-    auto pFrame = Frame::create(cv::imread(fLeftFp, 0), cv::imread(fRightFp, 0), 200, briefFp, 20, 7);
-    auto pFrame2 = Frame::create(cv::imread(kfLeftFp, 0), cv::imread(kfRightFp, 0), 200, briefFp, 20, 7);
+    auto pFrame = Frame::create(cv::imread(fLeftFp, 0), cv::imread(fRightFp, 0), 2000, briefFp, 20, 7);
+    auto pFrame2 = Frame::create(cv::imread(kfLeftFp, 0), cv::imread(kfRightFp, 0), 2000, briefFp, 20, 7);
 
     std::vector<MapPoint::SharedPtr> mapPoints;
     std::vector<cv::DMatch> matches;
 
     pFrame2->setPose(cv::Mat::eye(4, 4, CV_32F));
     pFrame2->unProject(mapPoints);
+    auto pKframe = KeyFrame::create(*pFrame2);
+    for (std::size_t idx = 0; idx < mapPoints.size(); ++idx) {
+        auto pMp = mapPoints[idx];
+        if (pMp && !pMp->isBad()) {
+            pMp->addAttriInit(pKframe, idx);
+        }
+    }
+
     cv::Mat pose = cv::Mat::eye(4, 4, CV_32F);
-    pose.at<float>(2, 3) = -0.8;
+    pose.at<float>(2, 3) = -0.67402983;
     pFrame->setPose(pose);
 
-    ORBMatcher matcher(0.7, true);
-    matcher.searchByProjection(pFrame, pFrame2, matches, 15);
+    ORBMatcher matcher;
+    matcher.searchByProjection(pFrame, mapPoints, 3);
     int nInliers = Optimizer::OptimizePoseOnly(pFrame);
     std::cout << std::endl << pFrame->getPose() << std::endl;
     std::cout << "nInliers: " << nInliers << std::endl;
-
-    ORBMatcher::showMatches(pFrame->getLeftImage(), pFrame2->getLeftImage(), pFrame->getLeftKeyPoints(),
-                            pFrame2->getLeftKeyPoints(), matches);
-
     return 0;
 }

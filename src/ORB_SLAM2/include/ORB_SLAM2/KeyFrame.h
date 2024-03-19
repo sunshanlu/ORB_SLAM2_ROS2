@@ -1,5 +1,6 @@
 #pragma once
 
+#include <list>
 #include <memory>
 
 #include "Frame.h"
@@ -14,7 +15,8 @@ class KeyFrame : public VirtualFrame {
 
 public:
     typedef std::shared_ptr<KeyFrame> SharedPtr;
-    typedef std::multimap<std::size_t, SharedPtr, std::greater<std::size_t>> ConnectedType;
+    typedef std::shared_ptr<const KeyFrame> ConstSharedPtr;
+    typedef std::multimap<SharedPtr, std::size_t> ConnectedType;
     typedef std::weak_ptr<Map> MapWeakPtr;
 
     static SharedPtr create(const VirtualFrame &vFrame) {
@@ -28,6 +30,26 @@ public:
         mbIsInMap = true;
         mpMap = pMap;
     }
+
+    bool isBad() const {
+        std::unique_lock<std::mutex> lock(mBadMutex);
+        return mbIsBad;
+    }
+
+    /// 获取关键帧的父节点
+    SharedPtr getParent() { return mpParent; }
+
+    /// 获取关键帧的子节点
+    std::vector<SharedPtr> getChildren() { return mvpChildren; }
+
+    /// 获取相连关键帧
+    std::vector<SharedPtr> getConnectedKfs(int th) override;
+
+    /// 获取是否在局部地图中
+    bool isLocalKf() const { return mbIsLocalKf; }
+
+    /// 设置是否在局部地图中
+    void setLocalKf(bool bIsLocalKf) { mbIsLocalKf = bIsLocalKf; }
 
     ~KeyFrame() = default;
 
@@ -44,12 +66,17 @@ private:
         mnId = mnNextId;
     }
 
-    static std::size_t mnNextId;        ///< 下一个关键帧的id
-    std::size_t mnId;                   ///< 当前关键帧的id
-    bool mbIsInMap = false;             ///< 是否在地图中
-    ConnectedType mmConnectedKfs;       ///< 产生连接的关键帧
-    SharedPtr mpParent;                 ///< 生成树的父节点
-    std::vector<SharedPtr> mvpChildren; ///< 生成树的子节点
-    MapWeakPtr mpMap;                   ///< 地图
+    static std::size_t mnNextId;                    ///< 下一个关键帧的id
+    std::size_t mnId;                               ///< 当前关键帧的id
+    bool mbIsInMap = false;                         ///< 是否在地图中
+    ConnectedType mmConnectedKfs;                   ///< 产生连接的关键帧
+    std::list<KeyFrame::SharedPtr> mlpConnectedKfs; ///< 连接的关键帧(从大到小)
+    std::list<std::size_t> mlnConnectedWeights;     ///< 连接权重（从大到小）
+    SharedPtr mpParent;                             ///< 生成树的父节点
+    std::vector<SharedPtr> mvpChildren;             ///< 生成树的子节点
+    MapWeakPtr mpMap;                               ///< 地图
+    bool mbIsBad = false;                           ///< 是否是废弃的关键帧
+    mutable std::mutex mBadMutex;                   ///< mbIsBad的互斥锁
+    bool mbIsLocalKf = false;                       ///< 是否在跟踪线程维护的局部地图中
 };
 } // namespace ORB_SLAM2_ROS2

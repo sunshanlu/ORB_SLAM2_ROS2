@@ -143,14 +143,15 @@ private:
     static std::vector<unsigned> mvMaxColIdx;   ///< 最大列索引值
     static bool mbMaxColInit;                   ///< 列索引是否初始化
     static int mnCentroidR;                     ///< 灰度质心法的半径
-    static int mnLevels;                        ///< 图像金字塔层数
     std::vector<cv::Mat> mvPyramids;            ///< 图像金字塔
     static std::vector<float> mvfScaledFactors; ///< 图像金字塔的缩放因子
     static bool mbScaleInit;                    ///< 金字塔缩放层级是否初始化
     static std::vector<int> mvnFeatures;        ///< 图像金字塔每层需要提取的特征点数目
 
 public:
-    static int mnBorderSize; ///< 边界宽度 (用于限制brief的边界问题)
+    static int mnLevels;         ///< 图像金字塔层数
+    static int mnBorderSize;     ///< 边界宽度 (用于限制brief的边界问题)
+    static float mfScaledFactor; ///< 金字塔图像层级
 };
 
 cv::Point2i rotateTemplate(const cv::Point2f &toRotPoint, const double &sinValue, const double &cosValue);

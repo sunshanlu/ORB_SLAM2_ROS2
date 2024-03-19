@@ -108,6 +108,47 @@ void Frame::unProject(std::vector<MapPoint::SharedPtr> &mapPoints) {
 }
 
 /**
+ * @brief 获取共视关键帧
+ *
+ * @param th    输入的相连阈值
+ * @return std::vector<KeyFrame::SharedPtr>
+ */
+std::vector<KeyFrame::SharedPtr> VirtualFrame::getConnectedKfs(int th) {
+    std::map<KeyFrame::SharedPtr, std::size_t> connectKfsWeight;
+    std::vector<KeyFrame::SharedPtr> connectKfs;
+    for (auto &pMp : mvpMapPoints) {
+        if (!pMp || pMp->isBad()) {
+            continue;
+        }
+        for (auto &obs : pMp->getObservation()) {
+            auto kfPtr = obs.first.lock();
+            if (kfPtr && !kfPtr->isBad()) {
+                ++connectKfsWeight[kfPtr];
+            }
+        }
+    }
+    int maxWeight = 0;
+    KeyFrame::SharedPtr maxKF;
+    for (const auto &item : connectKfsWeight) {
+        if (item.second >= th)
+            connectKfs.push_back(item.first);
+        if (item.second > maxWeight) {
+            maxWeight = item.second;
+            maxKF = item.first;
+        }
+    }
+    mpRefKF = maxKF;
+    return connectKfs;
+}
+
+/**
+ * @brief 获取VirtualFrame中的地图点
+ *
+ * @return std::vector<MapPointPtr> 输出的地图点
+ */
+std::vector<MapPoint::SharedPtr> &VirtualFrame::getMapPoints() { return mvpMapPoints; }
+
+/**
  * @brief 逆投影到相机坐标系中（根据特征点位置和深度）
  *
  * @param idx 左图特征点索引
@@ -162,9 +203,10 @@ std::vector<std::size_t> VirtualFrame::findFeaturesInArea(const cv::KeyPoint &kp
 
 /**
  * @brief 将世界坐标系下的3d点投影到像素坐标系下
- * 
- * @param p3dW 
- * @return cv::Point2f 
+ *
+ * @param p3dW          输入的世界坐标系下3D点的坐标
+ * @param isPositive    输出的投影到相机坐标系下，深度是否为正
+ * @return cv::Point2f
  */
 cv::Point2f VirtualFrame::project2UV(const cv::Mat &p3dW, bool &isPositive) {
     cv::Mat p3dC;
@@ -176,6 +218,7 @@ cv::Point2f VirtualFrame::project2UV(const cv::Mat &p3dW, bool &isPositive) {
     float z = p3dC.at<float>(2, 0);
     point.x = p3dC.at<float>(0, 0) / z * Camera::mfFx + Camera::mfCx;
     point.y = p3dC.at<float>(1, 0) / z * Camera::mfFy + Camera::mfCy;
+    isPositive = z > 0;
     return point;
 }
 
@@ -187,9 +230,7 @@ cv::Point2f VirtualFrame::project2UV(const cv::Mat &p3dW, bool &isPositive) {
  *      3. 跟踪局部地图：变成和自己共视程度最高的关键帧
  * @return KeyFrame::SharedPtr 返回参考关键帧
  */
-KeyFrame::SharedPtr Frame::getRefKF(){
-    return mpRefKF;
-}
+KeyFrame::SharedPtr Frame::getRefKF() { return mpRefKF; }
 
 std::string VirtualFrame::msVoc = "/home/rookie-lu/Project/ORB-SLAM2/ORB-SLAM2-ROS2/Vocabulary/ORBvoc.txt";
 VirtualFrame::VocabPtr VirtualFrame::mpVoc = std::make_shared<DBoW3::Vocabulary>(VirtualFrame::msVoc);

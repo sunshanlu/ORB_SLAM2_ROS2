@@ -29,8 +29,32 @@ public:
     /// 跟踪恒速运动模型
     bool trackMotionModel();
 
+    /// 跟踪局部地图
+    bool trackLocalMap();
+
     /// 处理上一帧
     void processLastFrame();
+
+    /// 构建局部地图
+    void buildLocalMap();
+
+    /// 插入局部关键帧
+    void insertLocalKFrame(KeyFrame::SharedPtr pKf);
+
+    /// 插入局部地图点
+    void insertLocalMPoint(MapPoint::SharedPtr pMp);
+
+    /// 构建局部关键帧
+    void buildLocalKfs();
+
+    /// 构建局部地图点
+    void buildLocalMps();
+
+    /// 更新速度信息mVelocity
+    void updateVelocity();
+
+    /// 更新mTlr（上一帧到参考关键帧的位姿）
+    void updateTlr();
 
 private:
     TrackingState mStatus = TrackingState::NOT_IMAGE_YET; ///< 跟踪状态
@@ -40,14 +64,16 @@ private:
     Map::SharedPtr mpMap;         ///< 地图
     KeyFrame::SharedPtr mpRefKf;  ///< 参考关键帧
 
-    unsigned mnFeatures;            ///< 正常跟踪时关键点数目
-    unsigned mnInitFeatures;        ///< 初始化地图时关键点数目
-    std::string msBriefTemFp;       ///< BRIEF描述子模版路径
-    int mnMaxThresh;                ///< FAST最大阈值
-    int mnMinThresh;                ///< FAST最小阈值
-    cv::Mat mVelocity;              ///< 速度Tcl
-    bool mbUseMotionModel;          ///< 是否使用运动模型
-    cv::Mat mTlr;                   ///< 上一帧到上一帧参考关键帧的位姿差
-    TempMapPoints mvpTempMappoints; ///< 临时地图点
+    unsigned mnFeatures;                          ///< 正常跟踪时关键点数目
+    unsigned mnInitFeatures;                      ///< 初始化地图时关键点数目
+    std::string msBriefTemFp;                     ///< BRIEF描述子模版路径
+    int mnMaxThresh;                              ///< FAST最大阈值
+    int mnMinThresh;                              ///< FAST最小阈值
+    cv::Mat mVelocity;                            ///< 速度Tcl
+    bool mbUseMotionModel;                        ///< 是否使用运动模型
+    cv::Mat mTlr;                                 ///< 上一帧到上一帧参考关键帧的位姿差
+    TempMapPoints mvpTempMappoints;               ///< 临时地图点
+    std::vector<KeyFrame::SharedPtr> mvpLocalKfs; ///< 局部地图关键帧
+    std::vector<MapPoint::SharedPtr> mvpLocalMps; ///< 局部地图点
 };
 } // namespace ORB_SLAM2_ROS2

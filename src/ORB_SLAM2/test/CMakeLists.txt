@@ -30,3 +30,8 @@ target_link_libraries(OptimizePoseOnlyTest DEPEND_LIBS)
 add_executable(SearchByProjectionMMTest ${SOURCE_FILE} ./ORBMatcherTest/SearchByProjectionMM.cc)
 ament_target_dependencies(SearchByProjectionMMTest rclcpp)
 target_link_libraries(SearchByProjectionMMTest DEPEND_LIBS)
+
+# ORB特征点匹配器测试SearchByProjection中的跟踪局部地图
+add_executable(SearchByProjectionLMTest ${SOURCE_FILE} ./ORBMatcherTest/SearchByProjectionLM.cc)
+ament_target_dependencies(SearchByProjectionLMTest rclcpp)
+target_link_libraries(SearchByProjectionLMTest DEPEND_LIBS)

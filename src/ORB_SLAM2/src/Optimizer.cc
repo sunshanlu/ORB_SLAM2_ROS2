@@ -149,6 +149,9 @@ int Optimizer::OptimizePoseOnly(Frame::SharedPtr pFrame) {
     for (std::size_t idx = 0; idx < inLier.size(); ++idx) {
         if (!inLier[idx])
             pFrame->mvpMapPoints[idx] = nullptr;
+        else {
+            pFrame->mvpMapPoints[idx]->addInlierInTrack();
+        }
     }
     auto se3Optimized = poseVertex->estimate();
     pFrame->setPose(Converter::ConvertSE32Tcw(se3Optimized));
