@@ -29,6 +29,9 @@ public:
     /// 跟踪恒速运动模型
     bool trackMotionModel();
 
+    /// 重定位跟踪
+    bool trackReLocalize();
+
     /// 跟踪局部地图
     bool trackLocalMap();
 

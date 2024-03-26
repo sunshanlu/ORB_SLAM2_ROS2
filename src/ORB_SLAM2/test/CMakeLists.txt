@@ -35,3 +35,8 @@ target_link_libraries(SearchByProjectionMMTest DEPEND_LIBS)
 add_executable(SearchByProjectionLMTest ${SOURCE_FILE} ./ORBMatcherTest/SearchByProjectionLM.cc)
 ament_target_dependencies(SearchByProjectionLMTest rclcpp)
 target_link_libraries(SearchByProjectionLMTest DEPEND_LIBS)
+
+# PnPSolver求解器测试EPnP
+add_executable(EPnPTest ${SOURCE_FILE} ./PnPSolverTest/EPnPTest.cc)
+ament_target_dependencies(EPnPTest rclcpp)
+target_link_libraries(EPnPTest DEPEND_LIBS)

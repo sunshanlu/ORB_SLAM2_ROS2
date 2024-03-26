@@ -220,6 +220,22 @@ bool Tracking::trackMotionModel() {
 }
 
 /**
+ * @brief 当恒速模型跟踪和参考关键帧跟踪失败时，尝试重定位跟踪
+ * @details
+ *      1. 使用关键帧数据库，寻找一些和当前帧最相似的候选关键帧
+ *      2. 使用词袋匹配（无先验信息），找到和候选关键帧的匹配
+ *      3. 使用EPnP算法和RANSAC模型，进行位姿的初步估计
+ *      4. 使用重投影匹配，进行精确匹配
+ *      5. 使用仅位姿优化，得到精确位姿
+ * 
+ * @return true     重定位跟踪成功
+ * @return false    重定位跟踪失败
+ */
+bool Tracking::trackReLocalize() {
+    
+}
+
+/**
  * @brief 跟踪局部地图
  * @details
  *      1. 构建局部地图

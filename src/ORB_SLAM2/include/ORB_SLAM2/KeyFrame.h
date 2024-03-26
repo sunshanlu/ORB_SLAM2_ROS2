@@ -42,8 +42,11 @@ public:
     /// 获取关键帧的子节点
     std::vector<SharedPtr> getChildren() { return mvpChildren; }
 
-    /// 获取相连关键帧
+    /// 获取相连关键帧（输入的是权重阈值）
     std::vector<SharedPtr> getConnectedKfs(int th) override;
+
+    /// 获取相连关键帧（输入的是相连关键帧的个数）
+    std::vector<SharedPtr> getOrderedConnectedKfs(int nNum);
 
     /// 获取是否在局部地图中
     bool isLocalKf() const { return mbIsLocalKf; }

@@ -71,6 +71,9 @@ public:
     /// 在给定的区域里面快速符合要求的特征点
     std::vector<std::size_t> findFeaturesInArea(const cv::KeyPoint &kp, float radius, int minNLevel, int maxNLevel);
 
+    /// 计算相似程度
+    double computeSimilarity(const VirtualFrame &other) { return mpVoc->score(mBowVec, other.mBowVec); }
+
     /**
      * @brief 设置位姿
      *
@@ -97,20 +100,20 @@ public:
     }
 
     /// 获取帧中图像金字塔的缩放层级
-    float getScaledFactor(const int &nLevel) const { return mvfScaledFactors[nLevel]; }
+    static float getScaledFactor(const int &nLevel) { return mvfScaledFactors[nLevel]; }
+
+    /// 获取金字塔缩放因子的平方
+    static float getScaledFactor2(const int &nLevel) { return std::pow(getScaledFactor(nLevel), 2); }
+
+    /// 获取金字塔缩放因子的倒数
+    static float getScaledFactorInv(const int &nLevel) { return 1.0f / getScaledFactor(nLevel); }
+
+    /// 获取金字塔缩放因子倒数的平方
+    static float getScaledFactorInv2(const int &nLevel) { return std::pow(getScaledFactorInv(nLevel), 2); }
 
     /// 获取左右帧ORB特征点api
     const std::vector<cv::KeyPoint> &getLeftKeyPoints() const { return mvFeatsLeft; }
     const std::vector<cv::KeyPoint> &getRightKeyPoints() const { return mvFeatsRight; }
-
-    /// 获取金字塔缩放因子的平方
-    float getScaledFactor2(const int &nLevel) const { return std::pow(getScaledFactor(nLevel), 2); }
-
-    /// 获取金字塔缩放因子的倒数
-    float getScaledFactorInv(const int &nLevel) const { return 1.0f / getScaledFactor(nLevel); }
-
-    /// 获取金字塔缩放因子倒数的平方
-    float getScaledFactorInv2(const int &nLevel) const { return std::pow(getScaledFactorInv(nLevel), 2); }
 
     /// 计算词袋
     void computeBow() {
@@ -120,6 +123,9 @@ public:
 
     /// 获取是否已经计算过词袋了
     bool isBowComputed() const { return mbBowComputed; }
+
+    /// 获取词袋信息
+    const DBoW3::BowVector &getBowVec() const { return mBowVec; }
 
     /// 获取描述子
     std::vector<cv::Mat> &getDescriptor() { return mvLeftDescriptor; }
