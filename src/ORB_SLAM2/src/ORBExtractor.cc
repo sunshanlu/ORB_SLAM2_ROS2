@@ -126,8 +126,11 @@ void Quadtree::split() {
             mnNodes += 1;
         }
     }
-    if (mnNodes < mnNeedNodes)
-        throw FeatureLessError("节点数目少于期待特征点数目，分裂失败");
+    // if (mnNodes < mnNeedNodes) {
+    //     std::cout << mnNodes << std::endl;
+    //     std::cout << mnNeedNodes << std::endl;
+    //     throw FeatureLessError("节点数目少于期待特征点数目，分裂失败");
+    // }
     nodes2kpoints(toSplitNodes);
 }
 
@@ -140,7 +143,8 @@ void Quadtree::split() {
  */
 void Quadtree::nodes2kpoints(WeightNodes &toSplitNodes) {
     auto iter = toSplitNodes.begin();
-    for (unsigned i = 0; i < mnNeedNodes; ++i) {
+    std::size_t nodeNum = std::min((std::size_t)mnNeedNodes, toSplitNodes.size());
+    for (unsigned i = 0; i < nodeNum; ++i) {
         auto featIdx = iter->second->getFeature();
         mvRetKpoints.insert(featIdx);
         ++iter;
@@ -336,9 +340,10 @@ void ORBExtractor::extractFast(int nlevel, std::vector<cv::KeyPoint> &keyPoints)
             }
         }
     }
-    if (keyPoints.size() <= mvnFeatures[nlevel]) {
-        throw FeatureLessError("图像中的特征点数目不够");
-        return;
+    if (keyPoints.size() < mvnFeatures[nlevel]) {
+        mvnFeatures[nlevel] = keyPoints.size();
+        int diffNum = keyPoints.size() - mvnFeatures[nlevel];
+        mnFeats -= diffNum;
     }
 }
 

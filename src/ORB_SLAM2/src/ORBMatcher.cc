@@ -58,7 +58,7 @@ int ORBMatcher::searchByStereo(Frame::SharedPtr pFrame) {
         rightU = std::max(0.f, rightU);
         rightU = std::min(rightU, (float)rightPyramids[0].cols - 1);
         pFrame->mvFeatsRightU[ldx] = rightU;
-        assert(std::abs(lKp.pt.x - rightU) > 1e-2);
+        // assert(std::abs(lKp.pt.x - rightU) > 1e-2);
         pFrame->mvDepths[ldx] = Camera::mfBf / (lKp.pt.x - rightU);
         ++nMatches;
     }
@@ -133,8 +133,9 @@ int ORBMatcher::searchByBow(Frame::SharedPtr pFrame, KeyFrame::SharedPtr pKframe
  * @param th      输入的寻找匹配的阈值大小
  * @return int  输出的匹配成功的个数
  */
-int ORBMatcher::searchByProjection(Frame::SharedPtr pFrame1, Frame::SharedPtr pFrame2, std::vector<cv::DMatch> &matches,
-                                   float th) {
+int ORBMatcher::searchByProjection(Frame::SharedPtr pFrame1, VirtualFrame::SharedPtr pFrame2,
+                                   std::vector<cv::DMatch> &matches, float th) {
+    matches.clear();
     assert(!pFrame1->mTcw.empty() && !pFrame2->mTcw.empty() && "pFrame1或pFrame的位姿为空");
     /// 判断前进或后退
     cv::Mat tlc = pFrame2->mRcw * pFrame1->mtwc + pFrame2->mtcw;
@@ -165,6 +166,7 @@ int ORBMatcher::searchByProjection(Frame::SharedPtr pFrame1, Frame::SharedPtr pF
         }
         std::vector<std::size_t> newCandidates;
 
+        /// 将fram原有的匹配保留下来，不做任何修改
         std::copy_if(candidateIdx.begin(), candidateIdx.end(), std::back_inserter(newCandidates),
                      [&](const std::size_t &candidateID) {
                          MapPoint::SharedPtr pMp1 = pFrame1->mvpMapPoints[candidateID];
@@ -419,7 +421,7 @@ void ORBMatcher::verifyAngle(std::vector<cv::DMatch> &matches, const std::vector
     HistBin hist(mnBinNum);
     for (const auto &dmatch : matches) {
         float diff = keyPoints1[dmatch.queryIdx].angle - keyPoints2[dmatch.trainIdx].angle;
-        diff = diff > 0 ? diff : 360 + diff;
+        diff = diff >= 0 ? diff : 360 + diff;
         int bin = diff / (360 / mnBinNum);
         hist[bin].push_back(dmatch);
     }

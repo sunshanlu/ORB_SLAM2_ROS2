@@ -88,6 +88,16 @@
         "__mutex_base": "cpp",
         "any": "cpp",
         "__node_handle": "cpp",
-        "dense": "cpp"
+        "dense": "cpp",
+        "clocale": "cpp",
+        "complex": "cpp",
+        "csignal": "cpp",
+        "cstdarg": "cpp",
+        "fstream": "cpp",
+        "future": "cpp",
+        "iomanip": "cpp",
+        "numeric": "cpp",
+        "optional": "cpp",
+        "typeindex": "cpp"
     }
 }

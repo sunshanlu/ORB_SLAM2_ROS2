@@ -45,13 +45,11 @@ int main() {
 
     auto allMapPoints = pFrame->getMapPoints();
     auto allORBPoints = pFrame->getLeftKeyPoints();
-    std::vector<std::size_t> vIndecies;
 
     nMatches = 0;
     for (std::size_t idx = 0; idx < allORBPoints.size(); ++idx) {
         auto pMp = allMapPoints[idx];
         if (pMp && !pMp->isBad()) {
-            vIndecies.push_back(nMatches);
             cv::Mat pos = pMp->getPos();
             vMapPoints.push_back(pos);
             vORBPoints.push_back(allORBPoints[idx]);
@@ -61,8 +59,11 @@ int main() {
         }
     }
     cv::Mat Rcw, tcw;
+    bool bNoMore;
+    std::vector<std::size_t> inlierIndices;
     auto solver = PnPSolver::create(vMapPoints, vORBPoints);
-    solver->EPnP(vIndecies, Rcw, tcw);
+    solver->setRansacParams();
+    bool ret = solver->iterate(25, Rcw, tcw, bNoMore, inlierIndices);
     std::cout << "使用自定义的EPnP算法计算的相机位姿" << std::endl;
     std::cout << Rcw << std::endl;
     std::cout << tcw << std::endl;

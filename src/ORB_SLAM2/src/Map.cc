@@ -10,6 +10,7 @@ namespace ORB_SLAM2_ROS2 {
  * @param pMap  包装的this的共享指针
  */
 void Map::insertKeyFrame(KeyFramePtr pKf, Map::SharedPtr pMap) {
+    pKf->updateConnections();
     mvpKeyFrames.push_back(pKf);
     pKf->setMap(pMap);
 }
@@ -21,6 +22,8 @@ void Map::insertKeyFrame(KeyFramePtr pKf, Map::SharedPtr pMap) {
  * @param pMap  包装的this的共享指针
  */
 void Map::insertMapPoint(MapPointPtr pMp, Map::SharedPtr pMap) {
+    if (pMp->isInMap())
+        return;
     mvpMapPoints.push_back(pMp);
     pMp->setMap(pMap);
 }

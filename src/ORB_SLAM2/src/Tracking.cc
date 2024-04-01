@@ -1,8 +1,10 @@
 #include "ORB_SLAM2/Tracking.h"
 #include "ORB_SLAM2/KeyFrame.h"
+#include "ORB_SLAM2/KeyFrameDB.h"
 #include "ORB_SLAM2/MapPoint.h"
 #include "ORB_SLAM2/ORBMatcher.h"
 #include "ORB_SLAM2/Optimizer.h"
+#include "ORB_SLAM2/PnPSolver.h"
 
 namespace ORB_SLAM2_ROS2 {
 
@@ -11,18 +13,27 @@ namespace ORB_SLAM2_ROS2 {
  *
  * @param leftImg   左图像
  * @param rightImg  右图像
+ * @return cv::Mat 输出的位姿矩阵
  */
-void Tracking::grabFrame(cv::Mat leftImg, cv::Mat rightImg) {
-    mpCurrFrame = Frame::create(leftImg, rightImg, mnInitFeatures, msBriefTemFp, mnMaxThresh, mnMinThresh);
+cv::Mat Tracking::grabFrame(cv::Mat leftImg, cv::Mat rightImg) {
+    switch (mStatus) {
+    case TrackingState::NOT_IMAGE_YET:
+        mpCurrFrame = Frame::create(leftImg, rightImg, mnInitFeatures, msBriefTemFp, mnMaxThresh, mnMinThresh);
+        break;
+    default:
+        mpCurrFrame = Frame::create(leftImg, rightImg, mnFeatures, msBriefTemFp, mnMaxThresh, mnMinThresh);
+    }
     if (mStatus == TrackingState::NOT_IMAGE_YET) {
         mStatus = TrackingState::NOT_INITING;
         auto pose = cv::Mat::eye(4, 4, CV_32F);
         mpCurrFrame->setPose(pose);
     }
 
-    if (mStatus == TrackingState::NOT_INITING && mpCurrFrame->getN() >= 500)
+    if (mStatus == TrackingState::NOT_INITING && mpCurrFrame->getN() >= 500) {
         initForStereo();
-    else if (mStatus == TrackingState::OK) {
+        mpLastFrame = mpCurrFrame;
+        return mpCurrFrame->getPose();
+    } else if (mStatus == TrackingState::OK) {
         bool bOK = false;
         mpCurrFrame->setPose(mpLastFrame->getPose());
         if (mVelocity.empty()) {
@@ -32,16 +43,40 @@ void Tracking::grabFrame(cv::Mat leftImg, cv::Mat rightImg) {
             if (!bOK)
                 bOK = trackReference();
         }
-        // todo: bOK为true时，跟踪局部地图，否则进行重定位
-
+        if (!bOK)
+            bOK = trackReLocalize();
         if (bOK) {
-            trackLocalMap();
+            bOK = trackLocalMap();
+            if (bOK)
+                mStatus = TrackingState::OK;
+            else {
+                mStatus = TrackingState::LOST;
+                return cv::Mat();
+            }
+        } else {
+            mStatus = TrackingState::LOST;
+            return cv::Mat();
+        }
+
+    } else if (mStatus == TrackingState::LOST) {
+        bool bOK = trackReLocalize();
+        if (bOK) {
+            bOK = trackLocalMap();
+            if (bOK)
+                mStatus = TrackingState::OK;
+        } else {
+            mStatus = TrackingState::LOST;
+            return cv::Mat();
         }
     }
     updateVelocity();
     updateTlr();
     mpLastFrame = mpCurrFrame;
+    return mpCurrFrame->getPose();
 }
+
+/// 将当前帧升级为关键帧
+KeyFrame::SharedPtr Tracking::updateCurrFrame() { return KeyFrame::create(*mpCurrFrame); }
 
 /// 更新速度Tcl
 void Tracking::updateVelocity() {
@@ -220,6 +255,109 @@ bool Tracking::trackMotionModel() {
 }
 
 /**
+ * @brief 重定位第一步：使用关键帧数据库，找到初步的候选关键帧
+ *
+ * @param vpCandidateKFs    输出的初步候选关键帧
+ * @param candidateNum      输出的候选关键帧数量
+ * @return true     找到初步的候选关键帧
+ * @return false    没找到初步的候选关键帧
+ */
+bool Tracking::findInitialKF(std::vector<KeyFrame::SharedPtr> &vpCandidateKFs, int &candidateNum) {
+    mpKfDB->findRelocKfs(mpCurrFrame, vpCandidateKFs);
+    candidateNum = vpCandidateKFs.size();
+    if (candidateNum == 0)
+        return false;
+    return true;
+}
+
+/**
+ * @brief RelocBowParam 结构体的构造函数
+ *
+ * @param nCandidate 输入的候选关键帧数量
+ */
+RelocBowParam::RelocBowParam(int nCandidate) {
+    mvpSolvers.resize(nCandidate, nullptr);
+    mvAllMatches.resize(nCandidate);
+    mvPnPId2MatchID.resize(nCandidate);
+}
+
+/**
+ * @brief 使用词袋匹配进一步筛选候选关键帧
+ *
+ * @param relocBowParam     输出的基于词袋匹配的信息
+ * @param vbDiscard         输出的不合格关键帧的标识
+ * @param candidateNum      输入的候选关键帧数量
+ * @param vpCandidateKFs    输入的候选关键帧
+ * @return int 输出的合格关键帧数量
+ */
+int Tracking::filterKFByBow(RelocBowParam &relocBowParam, std::vector<bool> &vbDiscard, const int &candidateNum,
+                            std::vector<KeyFrame::SharedPtr> &vpCandidateKFs) {
+    int nCandidates = 0;
+    for (std::size_t idx = 0; idx < candidateNum; ++idx) {
+        KeyFrame::SharedPtr pkf = vpCandidateKFs[idx];
+        if (!pkf || pkf->isBad()) {
+            vbDiscard[idx] = true;
+            continue;
+        }
+        ORBMatcher matcher(0.75, true);
+        std::vector<cv::DMatch> matches;
+        mpCurrFrame->setMapPointsNull();
+        int nMatches = matcher.searchByBow(mpCurrFrame, pkf, matches);
+        relocBowParam.mvAllMatches[idx] = matches;
+        if (nMatches < 10)
+            vbDiscard[idx] = true;
+        else {
+            std::vector<cv::Mat> mapPoints;
+            std::vector<cv::KeyPoint> ORBPoints;
+            const auto &allORBPoints = mpCurrFrame->getLeftKeyPoints();
+            const auto &allMapPoints = pkf->getMapPoints();
+
+            std::size_t pnpIdx = 0;
+            for (std::size_t jdx = 0; jdx < matches.size(); ++jdx) {
+                const auto &match = matches[jdx];
+                const auto &pMp = allMapPoints[match.trainIdx];
+                const auto &ORBPoint = allORBPoints[match.queryIdx];
+                if (!pMp || pMp->isBad())
+                    continue;
+                ORBPoints.push_back(ORBPoint);
+                mapPoints.push_back(pMp->getPos().clone());
+                relocBowParam.mvPnPId2MatchID[idx][pnpIdx] = jdx;
+                ++pnpIdx;
+            }
+            relocBowParam.mvpSolvers[idx] = PnPSolver::create(mapPoints, ORBPoints);
+            ++nCandidates;
+        }
+    }
+    return nCandidates;
+}
+
+/**
+ * @brief 设置当前帧的地图点
+ *
+ * @param vInliers          输入的RANSAC算法后，内点的分布位置（EPNP）
+ * @param relocBowParam     输入的基于词袋匹配的信息
+ * @param idx               输入的候选关键帧的索引
+ * @param vpCandidateKFs    输入的候选关键帧
+ */
+void Tracking::setCurrFrameAttrib(const std::vector<std::size_t> &vInliers, const RelocBowParam &relocBowParam,
+                                  const std::size_t &idx, std::vector<KeyFrame::SharedPtr> &vpCandidateKFs,
+                                  const cv::Mat &Rcw, const cv::Mat &tcw) {
+    mpCurrFrame->setMapPointsNull();
+    for (const std::size_t &inlierIdx : vInliers) {
+        std::size_t matchID = relocBowParam.mvPnPId2MatchID[idx].at(inlierIdx);
+        int pMpId = relocBowParam.mvAllMatches[idx][matchID].trainIdx;
+        int kPId = relocBowParam.mvAllMatches[idx][matchID].queryIdx;
+        MapPoint::SharedPtr pMp = vpCandidateKFs[idx]->getMapPoints()[pMpId];
+        if (pMp && !pMp->isBad())
+            mpCurrFrame->setMapPoint(kPId, pMp);
+    }
+    cv::Mat Tcw = cv::Mat::eye(4, 4, CV_32F);
+    Rcw.copyTo(Tcw(cv::Range(0, 3), cv::Range(0, 3)));
+    tcw.copyTo(Tcw(cv::Range(0, 3), cv::Range(3, 4)));
+    mpCurrFrame->setPose(Tcw);
+}
+
+/**
  * @brief 当恒速模型跟踪和参考关键帧跟踪失败时，尝试重定位跟踪
  * @details
  *      1. 使用关键帧数据库，寻找一些和当前帧最相似的候选关键帧
@@ -227,12 +365,87 @@ bool Tracking::trackMotionModel() {
  *      3. 使用EPnP算法和RANSAC模型，进行位姿的初步估计
  *      4. 使用重投影匹配，进行精确匹配
  *      5. 使用仅位姿优化，得到精确位姿
- * 
+ *
  * @return true     重定位跟踪成功
  * @return false    重定位跟踪失败
  */
 bool Tracking::trackReLocalize() {
-    
+    /// 1. 使用关键帧数据库，找到初步的候选关键帧
+    int candidateNum;
+    std::vector<KeyFrame::SharedPtr> vpCandidateKFs;
+    if (!findInitialKF(vpCandidateKFs, candidateNum))
+        return false;
+
+    /// 2. 使用词袋匹配进一步筛选候选关键帧
+    std::vector<bool> vbDiscard(candidateNum, false);
+    RelocBowParam relocBowParam(candidateNum);
+    int nCandidates = filterKFByBow(relocBowParam, vbDiscard, candidateNum, vpCandidateKFs);
+
+    /// 3. 使用RANSAC和EPnP获取当前帧的初步位姿和内点分布
+    std::vector<std::size_t> vInliers;
+    bool bContinue = true;
+    while (nCandidates && bContinue) {
+        for (std::size_t idx = 0; idx < candidateNum; ++idx) {
+            if (vbDiscard[idx])
+                continue;
+            bool bNoMore = false;
+            cv::Mat Rcwi, tcwi;
+            vInliers.clear();
+            bool ret = relocBowParam.mvpSolvers[idx]->iterate(5, Rcwi, tcwi, bNoMore, vInliers);
+            if (bNoMore) {
+                vbDiscard[idx] = true;
+                --nCandidates;
+            }
+            if (!ret)
+                continue;
+            setCurrFrameAttrib(vInliers, relocBowParam, idx, vpCandidateKFs, Rcwi, tcwi);
+            int nInliers = Optimizer::OptimizePoseOnly(mpCurrFrame);
+            if (nInliers < 10)
+                continue;
+            else if (nInliers < 50) {
+                /// 4. 使用重投影匹配进行精确匹配
+                if (addMatchByProject(vpCandidateKFs[idx], nInliers)) {
+                    bContinue = false;
+                    break;
+                }
+            } else {
+                bContinue = false;
+                break;
+            }
+        }
+    }
+    if (bContinue)
+        return false;
+    return true;
+}
+
+/**
+ * @brief 使用重投影匹配进行精确匹配（修正位姿 + 添加匹配）
+ * @details
+ *      1. 在词袋匹配小于50时，使用
+ *      2. 如果通过第一次词袋匹配，mpCurrFrame没有50个匹配点，直接返回失败
+ *      3. 进行仅位姿优化，如果仅位姿优化得到的内点少于50，使用更严格的方式再次匹配
+ *      4. 这次不进行位姿优化，而是统计匹配数目和内点数目的和是否大于50
+ * @param pKFrame   输入的候选关键帧
+ * @param nInliers  输入输出的mpCurrframe中的内点数目
+ * @return true     成功
+ * @return false    失败
+ */
+bool Tracking::addMatchByProject(KeyFrame::SharedPtr pKFrame, int &nInliers) {
+    if (!pKFrame || pKFrame->isBad())
+        return false;
+    ORBMatcher matcher2(0.9, true);
+    std::vector<cv::DMatch> matches2;
+    int nAddition = matcher2.searchByProjection(mpCurrFrame, pKFrame, matches2, 10);
+    if (nAddition + nInliers < 50)
+        return false;
+    nInliers = Optimizer::OptimizePoseOnly(mpCurrFrame);
+    if (nInliers < 50) {
+        nAddition = matcher2.searchByProjection(mpCurrFrame, pKFrame, matches2, 3);
+        if (nAddition + nInliers < 50)
+            return false;
+    }
+    return true;
 }
 
 /**

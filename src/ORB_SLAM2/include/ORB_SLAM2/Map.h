@@ -13,6 +13,8 @@ public:
     typedef std::shared_ptr<KeyFrame> KeyFramePtr;
     typedef std::shared_ptr<MapPoint> MapPointPtr;
 
+    Map() = default;
+
     /// 向地图中插入关键帧
     void insertKeyFrame(KeyFramePtr pKf, SharedPtr map);
 

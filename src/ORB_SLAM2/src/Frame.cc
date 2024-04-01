@@ -87,6 +87,14 @@ Frame::Frame(cv::Mat leftImg, cv::Mat rightImg, int nFeatures, const std::string
 }
 
 /**
+ * @brief 设置指定位置的地图点
+ *
+ * @param idx 输入的指定位置索引
+ * @param pMp 输入的地图点
+ */
+void VirtualFrame::setMapPoint(int idx, MapPointPtr pMp) { mvpMapPoints[idx] = pMp; }
+
+/**
  * @brief 初始化地图点
  * @details
  *      1. 普通帧没有创建地图点的权限，只是利用普通帧的信息进行地图点计算
@@ -99,7 +107,11 @@ void Frame::unProject(std::vector<MapPoint::SharedPtr> &mapPoints) {
         cv::Mat p3dC = unProject(idx);
         if (!p3dC.empty()) {
             cv::Mat p3dW = mRwc * p3dC + mtwc;
-            mapPoints.push_back(MapPoint::create(p3dW));
+            auto pMp = mvpMapPoints[idx];
+            if (!pMp || pMp->isBad())
+                mapPoints.push_back(MapPoint::create(p3dW));
+            else
+                mapPoints.push_back(pMp);
         } else {
             mapPoints.push_back(nullptr);
         }

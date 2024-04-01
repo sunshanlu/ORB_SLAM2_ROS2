@@ -68,4 +68,16 @@ public:
     void pureVirtual() override {}
 };
 
+/**
+ * @brief EPnP求解错误
+ * 
+ */
+class EPnPError : public ORBSlam2Error {
+public:
+    explicit EPnPError(const std::string &what)
+        : ORBSlam2Error(what) {}
+
+    void pureVirtual() override {}
+};
+
 } // namespace ORB_SLAM2_ROS2

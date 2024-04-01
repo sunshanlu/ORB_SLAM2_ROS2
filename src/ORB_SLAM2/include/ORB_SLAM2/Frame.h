@@ -18,11 +18,14 @@ class KeyFrame;
 
 /// 帧的抽象类（以析构函数作为纯虚函数）
 class VirtualFrame {
+    friend class ORBMatcher;
+
 public:
     typedef std::shared_ptr<DBoW3::Vocabulary> VocabPtr;
     typedef std::vector<std::vector<std::vector<std::size_t>>> GridsType;
     typedef std::shared_ptr<KeyFrame> KeyFramePtr;
     typedef std::shared_ptr<MapPoint> MapPointPtr;
+    typedef std::shared_ptr<VirtualFrame> SharedPtr;
 
     VirtualFrame(unsigned width, unsigned height)
         : mnMaxU(width)
@@ -40,7 +43,8 @@ public:
         , mbBowComputed(other.mbBowComputed)
         , mBowVec(other.mBowVec)
         , mFeatVec(other.mFeatVec)
-        , mGrids(other.mGrids) {
+        , mGrids(other.mGrids)
+        , mpRefKF(other.mpRefKF) {
 
         // 对cv::Mat类型的数据进行深拷贝
         std::vector<cv::Mat> leftDesc(other.mvLeftDescriptor.size()), rightDesc(other.mRightDescriptor.size());
@@ -57,10 +61,21 @@ public:
         other.mRcw.copyTo(mRcw);
         other.mRwc.copyTo(mRwc);
         other.mTcw.copyTo(mTcw);
+        other.mTwc.copyTo(mTwc);
     }
 
     /// 获取与当前帧相连的关键帧，且共视权重大于等于th
     virtual std::vector<KeyFramePtr> getConnectedKfs(int th);
+
+    /// 将帧中的匹配地图点置为空
+    void setMapPointsNull() {
+        for (auto &pMp : mvpMapPoints) {
+            pMp = nullptr;
+        }
+    }
+
+    /// 设置指定位置的地图点
+    void setMapPoint(int idx, MapPointPtr pMp);
 
     /// 获取this的地图点信息
     virtual std::vector<MapPointPtr> &getMapPoints();
@@ -157,7 +172,6 @@ protected:
     DBoW3::BowVector mBowVec;                      ///< 左图的BOW向量
     DBoW3::FeatureVector mFeatVec;                 ///< 左图的特征向量
     static std::string msVoc;                      ///< 字典词袋路径
-    static VocabPtr mpVoc;                         ///< 字典词袋
     mutable std::mutex mPoseMutex;                 ///< 位姿互斥锁
     cv::Mat mTcw, mTwc;                            ///< 帧位姿
     cv::Mat mRcw, mRwc;                            ///< 位姿的旋转矩阵
@@ -170,8 +184,9 @@ protected:
     KeyFramePtr mpRefKF;                           ///< 普通帧的参考关键帧
 
 public:
-    unsigned mnMaxU; ///< 图像宽度
-    unsigned mnMaxV; ///< 图像高度
+    static VocabPtr mpVoc; ///< 字典词袋
+    unsigned mnMaxU;       ///< 图像宽度
+    unsigned mnMaxV;       ///< 图像高度
 };
 
 /// 普通帧

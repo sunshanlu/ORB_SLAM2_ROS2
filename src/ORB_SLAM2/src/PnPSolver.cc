@@ -1,6 +1,10 @@
-#include "ORB_SLAM2/PnPSolver.h"
+#include <float.h>
+#include <random>
+
 #include "ORB_SLAM2/Camera.h"
+#include "ORB_SLAM2/Error.h"
 #include "ORB_SLAM2/Frame.h"
+#include "ORB_SLAM2/PnPSolver.h"
 
 namespace ORB_SLAM2_ROS2 {
 
@@ -18,7 +22,9 @@ PnPSolver::PnPSolver(std::vector<cv::Mat> &vMapPoints, std::vector<cv::KeyPoint>
         mvMapPoints.emplace_back(mpPos.at<float>(0), mpPos.at<float>(1), mpPos.at<float>(2));
         mvORBPoints.emplace_back(kp.pt);
         mvfErrors.emplace_back(5.991 * Frame::getScaledFactor2(kp.octave));
+        mvAllIndices.push_back(idx);
     }
+    mnN = n;
 }
 
 /**
@@ -33,13 +39,18 @@ PnPSolver::PnPSolver(std::vector<cv::Mat> &vMapPoints, std::vector<cv::KeyPoint>
  * @param vIndices
  */
 void PnPSolver::EPnP(std::vector<std::size_t> vIndices, cv::Mat &Rcw, cv::Mat &tcw) {
+    if (vIndices.size() < 4)
+        throw EPnPError("进行EPnP时，传入的索引数目不合法！");
     std::vector<cv::Point3f> vMapPoints;
     std::vector<cv::Point2f> vORBPoints;
     for (const auto &idx : vIndices) {
         vMapPoints.push_back(mvMapPoints[idx]);
         vORBPoints.push_back(mvORBPoints[idx]);
     }
-    std::vector<cv::Point3f> ctlPointsW = computeCtlPoint(vMapPoints);
+    bool isPositive = true;
+    std::vector<cv::Point3f> ctlPointsW = computeCtlPoint(vMapPoints, isPositive);
+    if (!isPositive)
+        return;
     cv::Mat Alpha = computeAlpha(vMapPoints, ctlPointsW);
     cv::Mat M = computeMMat(vORBPoints, Alpha);
     auto MREVec = computeMREVec(M);
@@ -115,7 +126,7 @@ void PnPSolver::ICP(const std::vector<cv::Point3f> &ctlPointsW, const std::vecto
  * @param vMapPoints 输入的所有地图点坐标
  * @return std::vector<cv::Point3f> 输出的世界坐标系下的控制点坐标
  */
-std::vector<cv::Point3f> PnPSolver::computeCtlPoint(const std::vector<cv::Point3f> &vMapPoints) {
+std::vector<cv::Point3f> PnPSolver::computeCtlPoint(const std::vector<cv::Point3f> &vMapPoints, bool &bIsPositive) {
     std::vector<cv::Point3f> vCtlPoints;
     int n = vMapPoints.size();
     cv::Point3f centroid(0, 0, 0);
@@ -136,6 +147,11 @@ std::vector<cv::Point3f> PnPSolver::computeCtlPoint(const std::vector<cv::Point3
     assert(ret && "获取矩阵特征值和特征向量函数出错！");
     for (int idx = 0; idx < 3; ++idx) {
         cv::Point3f point;
+        float eigenVali = eigenVal.at<float>(idx, 0);
+        if (eigenVali < 1e-3) {
+            bIsPositive = false;
+            break;
+        }
         cv::Mat temp = std::sqrt(eigenVal.at<float>(idx, 0) / n) * eigenVec.row(idx);
         point.x = centroid.x + temp.at<float>(0, 0);
         point.y = centroid.y + temp.at<float>(0, 1);
@@ -319,6 +335,7 @@ cv::Mat PnPSolver::computeBetaUnOpt(const cv::Mat &L, const cv::Mat &rho) {
  * @param rho       输入的控制点距离矩阵（世界坐标系下）
  */
 void PnPSolver::GLOptimize(const cv::Mat &L, cv::Mat &vbeta, const cv::Mat &rho, int maxIteration) {
+    float currError = 0, oldError = FLT_MAX;
     for (int idx = 0; idx < maxIteration; ++idx) {
         const float &beta1 = vbeta.at<float>(0, 0);
         const float &beta2 = vbeta.at<float>(1, 0);
@@ -337,8 +354,12 @@ void PnPSolver::GLOptimize(const cv::Mat &L, cv::Mat &vbeta, const cv::Mat &rho,
         fullBeta = (cv::Mat_<float>(10, 1, CV_32F) << std::pow(beta1, 2), std::pow(beta2, 2), std::pow(beta3, 2),
                     std::pow(beta4, 2), beta1 * beta2, beta1 * beta3, beta1 * beta4, beta2 * beta3, beta2 * beta4,
                     beta3 * beta4);
-        float error = cv::norm(L * fullBeta - rho);
-        std::cout << error << std::endl;
+        currError = cv::norm(L * fullBeta - rho);
+        if (currError > oldError) {
+            vbeta -= deltaBeta;
+            return;
+        }
+        oldError = currError;
     }
 }
 
@@ -383,6 +404,135 @@ float PnPSolver::computeDet3(const cv::Mat &mat) {
            mat.at<float>(0, 2) * mat.at<float>(1, 1) * mat.at<float>(2, 0) -
            mat.at<float>(0, 1) * mat.at<float>(1, 0) * mat.at<float>(2, 2) -
            mat.at<float>(0, 0) * mat.at<float>(1, 2) * mat.at<float>(2, 1);
+}
+
+/**
+ * @brief 设置RANSAC算法的参数
+ * @details
+ *      1. 首先固定采样次数
+ *      2. 固定（假定）样本中的最少内点数
+ *      3. 固定样本中内点比例
+ *      4. 根据内点比例和输入的迭代次数进行RANSAC迭代次数计算
+ * @param nMaxIterations    输入的最大迭代次数
+ * @param fRatio            输入的期望内点比例
+ * @param nMinSet           输入的样本采样个数
+ * @param fProb             输入的至少一次采样全是内点的概率
+ */
+void PnPSolver::setRansacParams(int nMaxIterations, float fRatio, int nMinSet, float fProb) {
+    mnMinSet = nMinSet;
+    mnMinInlier = std::max((float)nMinSet, mnN * fRatio);
+    mfMinInlierRatio = (float)mnMinInlier / mnN;
+    int nIters = cvRound(std::log(1 - fProb) / std::log(1 - std::pow(mfMinInlierRatio, mnMinSet)));
+    mnMaxIterations = std::min(nMaxIterations, nIters);
+}
+
+/**
+ * @brief 随机采样s次（mnMinSet）
+ *
+ * @return std::vector<std::size_t> 返回采样的索引
+ */
+std::vector<std::size_t> PnPSolver::randomSample() {
+    static std::default_random_engine generator;
+    std::uniform_int_distribution<std::size_t> distribution(0, mnN - 1);
+    std::vector<size_t> vChoseIndices;
+    int nNum = 0;
+    while (nNum != mnMinSet) {
+        std::size_t rdVal = distribution(generator);
+        if (std::find(vChoseIndices.begin(), vChoseIndices.end(), rdVal) == vChoseIndices.end()) {
+            vChoseIndices.push_back(rdVal);
+            nNum++;
+        }
+    }
+    return vChoseIndices;
+}
+
+/**
+ * @brief 判断样本中内点和外点的数目
+ *
+ * @param vbInlierFlags 输出的样本中内点标记
+ * @param Rcw           输入的Rcw（某一次RANSAC计算的旋转矩阵）
+ * @param tcw           输入的tcw（某一次RANSAC计算的平移向量）
+ * @return int 返回样本中内点的个数
+ */
+int PnPSolver::checkInliers(std::vector<std::size_t> &vnInlierIndices, const cv::Mat &Rcw, const cv::Mat &tcw) {
+    int nInliers = 0;
+    for (std::size_t idx = 0; idx < mnN; ++idx) {
+        const cv::Point2f &point2d = mvORBPoints[idx];
+        const cv::Point3f &point3d = mvMapPoints[idx];
+        const float &error = mvfErrors[idx];
+        cv::Mat p3dW = (cv::Mat_<float>(3, 1) << point3d.x, point3d.y, point3d.z);
+        cv::Mat p3dC = Rcw * p3dW + tcw;
+        const float &z = p3dC.at<float>(2, 0);
+        float u = p3dC.at<float>(0, 0) / z * Camera::mfFx + Camera::mfCx;
+        float v = p3dC.at<float>(1, 0) / z * Camera::mfFy + Camera::mfCy;
+        float err = (point2d.x - u) * (point2d.x - u) + (point2d.y - v) * (point2d.y - v);
+        if (err < error) {
+            vnInlierIndices.push_back(idx);
+            ++nInliers;
+        }
+    }
+    return nInliers;
+}
+
+/**
+ * @brief 根据内点分布的位置，进行内点回代
+ *
+ * @param vnInlierIndices   输入输出的内点索引
+ * @param Rcw               输出的Rcw（回代得到的旋转矩阵）
+ * @param tcw               输出的tcw（回代得到的平移向量）
+ * @return int 输出的回代后的内点数目
+ */
+int PnPSolver::refine(std::vector<std::size_t> &vnInlierIndices, cv::Mat &Rcw, cv::Mat &tcw) {
+    EPnP(vnInlierIndices, Rcw, tcw);
+    vnInlierIndices.clear();
+    return checkInliers(vnInlierIndices, Rcw, tcw);
+}
+
+/**
+ * @brief 进行RANSAC迭代（指定迭代次数）
+ *
+ * @param nIterations     指定的迭代次数
+ * @param Rcw             输出的RANSAC计算的旋转矩阵
+ * @param tcw             输出的RANSAC计算的平移向量
+ * @param bNoMore         输出的是否没有剩余迭代次数了
+ * @param vnInlierIndices 内点分布索引
+ * @return true     迭代成功，输出了位姿信息
+ * @return false    迭代失败，没有输出位姿信息
+ */
+bool PnPSolver::iterate(int nIterations, cv::Mat &Rcw, cv::Mat &tcw, bool &bNoMore,
+                        std::vector<std::size_t> &vnInlierIndices) {
+    int iter = 0;
+    if (mnN < mnMinSet) {
+        bNoMore = true;
+        return false;
+    }
+    while (iter < nIterations && mnCurrentIteration < mnMaxIterations) {
+        auto vnChoseIndices = randomSample();
+        EPnP(vnChoseIndices, Rcw, tcw);
+        if (!Rcw.empty()) {
+            int nInliers = checkInliers(vnInlierIndices, Rcw, tcw);
+            if (nInliers > mnMinInlier) {
+                if (nInliers > mnBestInliers) {
+                    mnBestInliers = nInliers;
+                    Rcw.copyTo(mBestRcw);
+                    tcw.copyTo(mBesttcw);
+                }
+                if (refine(vnInlierIndices, Rcw, tcw) > mnMinInlier)
+                    return true;
+            }
+        }
+        ++iter;
+        ++mnCurrentIteration;
+    }
+    if (mnCurrentIteration >= mnMaxIterations)
+        bNoMore = true;
+    if (mnBestInliers == 0)
+        return false;
+    else {
+        mBestRcw.copyTo(Rcw);
+        mBesttcw.copyTo(tcw);
+        return true;
+    }
 }
 
 } // namespace ORB_SLAM2_ROS2

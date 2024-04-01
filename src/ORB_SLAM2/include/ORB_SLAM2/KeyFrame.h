@@ -16,7 +16,7 @@ class KeyFrame : public VirtualFrame {
 public:
     typedef std::shared_ptr<KeyFrame> SharedPtr;
     typedef std::shared_ptr<const KeyFrame> ConstSharedPtr;
-    typedef std::multimap<SharedPtr, std::size_t> ConnectedType;
+    typedef std::map<SharedPtr, std::size_t> ConnectedType;
     typedef std::weak_ptr<Map> MapWeakPtr;
 
     static SharedPtr create(const VirtualFrame &vFrame) {
@@ -44,6 +44,9 @@ public:
 
     /// 获取相连关键帧（输入的是权重阈值）
     std::vector<SharedPtr> getConnectedKfs(int th) override;
+
+    /// 更新连接信息
+    void updateConnections();
 
     /// 获取相连关键帧（输入的是相连关键帧的个数）
     std::vector<SharedPtr> getOrderedConnectedKfs(int nNum);

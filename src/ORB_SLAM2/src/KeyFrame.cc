@@ -26,8 +26,34 @@ std::vector<KeyFrame::SharedPtr> KeyFrame::getConnectedKfs(int th) {
 }
 
 /**
+ * @brief 更新连接信息，在插入到地图中时调用
+ *
+ */
+void KeyFrame::updateConnections() {
+    mlpConnectedKfs.clear();
+    mlnConnectedWeights.clear();
+    mmConnectedKfs.clear();
+    std::map<KeyFrame::SharedPtr, std::size_t> mapConnected;
+    for (auto &pMp : mvpMapPoints) {
+        if (!pMp || pMp->isBad())
+            continue;
+        MapPoint::Observations obs = pMp->getObservation();
+        for (auto &obsItem : obs)
+            ++mapConnected[obsItem.first.lock()];
+    }
+    std::multimap<std::size_t, KeyFrame::SharedPtr, std::greater<std::size_t>> weightKfs;
+    for (auto &item : mapConnected)
+        weightKfs.insert(std::make_pair(item.second, item.first));
+    for (auto &item : weightKfs) {
+        mlpConnectedKfs.push_back(item.second);
+        mlnConnectedWeights.push_back(item.first);
+    }
+    mmConnectedKfs.swap(mapConnected);
+}
+
+/**
  * @brief 获取前nNum个与当前帧一阶相连的关键帧
- * 
+ *
  * @param nNum 输入的要求获取的关键帧数量
  * @return std::vector<KeyFrame::SharedPtr> 输出的满足要求的关键帧
  */

@@ -42,6 +42,9 @@ public:
     /// 判断地图点是否是bad
     bool isBad() const;
 
+    /// 判断地图点是否在map中
+    bool isInMap() const { return mbIsInMap; };
+
     /// 返回地图点位置
     cv::Mat getPos() const {
         cv::Mat pos;
