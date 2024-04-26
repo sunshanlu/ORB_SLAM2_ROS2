@@ -115,10 +115,10 @@ private:
     std::vector<cv::Mat> computeBRIEF(std::vector<cv::KeyPoint> &keypoints);
 
     /// 计算单个特征点的BRIEF描述子
-    double computeBRIEF(const cv::Mat &image, const cv::Point2i &point, std::vector<uchar> &descriptor);
+    double computeBRIEF(const int &nLevel, const cv::Point2f &point, std::vector<uchar> &descriptor);
 
     /// 灰度质心法
-    double getGrayCentroid(const cv::Mat &image, const cv::Point2i &point);
+    double getGrayCentroid(const cv::Mat &image, const cv::Point2f &point);
 
     /// 划分网格
     void getPitches(const cv::Mat &image, std::vector<std::vector<cv::Mat>> &pitches, int nlevel);
@@ -132,6 +132,9 @@ private:
     /// 初始化网格（对FAST角点检测的30*30的网格进行初始化）
     void initGrids(int nLevels);
 
+    /// 初始化maxu
+    void initMaxU();
+
     int mnFeats;                                ///< 要抽取的特征点数目
     static bool mbIdxInit;                      ///< 划分网格的行列索引是否初始化
     static GridIdxLevels mvRowIdxs;             ///< 划分网格的行索引
@@ -144,6 +147,7 @@ private:
     static bool mbMaxColInit;                   ///< 列索引是否初始化
     static int mnCentroidR;                     ///< 灰度质心法的半径
     std::vector<cv::Mat> mvPyramids;            ///< 图像金字塔
+    std::vector<cv::Mat> mvBriefMat;            ///< 计算BRIEF描述子图像
     static std::vector<float> mvfScaledFactors; ///< 图像金字塔的缩放因子
     static bool mbScaleInit;                    ///< 金字塔缩放层级是否初始化
     static std::vector<int> mvnFeatures;        ///< 图像金字塔每层需要提取的特征点数目
@@ -154,6 +158,6 @@ public:
     static float mfScaledFactor; ///< 金字塔图像层级
 };
 
-cv::Point2i rotateTemplate(const cv::Point2f &toRotPoint, const double &sinValue, const double &cosValue);
+cv::Point2f rotateTemplate(const cv::Point2f &toRotPoint, const double &sinValue, const double &cosValue);
 
 } // namespace ORB_SLAM2_ROS2

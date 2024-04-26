@@ -6,6 +6,7 @@
 #include "ORB_SLAM2/KeyFrameDB.h"
 #include "ORB_SLAM2/Map.h"
 #include "ORB_SLAM2/Tracking.h"
+#include "ORB_SLAM2/LocalMapping.h"
 
 using namespace ORB_SLAM2_ROS2;
 
@@ -21,7 +22,10 @@ int main() {
     auto pMap = std::make_shared<Map>();
     auto pKfDB = std::make_shared<KeyFrameDB>(Frame::mpVoc->size());
     auto tracking = std::make_shared<Tracking>(pMap, pKfDB);
+    auto localMapper = std::make_shared<LocalMapping>(pMap);
+    tracking->setLocalMapper(localMapper);
     std::cout << std::endl;
+    bool flag = false;
     for (int idx = 0; idx < 20; ++idx) {
         readImage(leftImg, rightImg, idx);
         cv::Mat pose = tracking->grabFrame(leftImg, rightImg);
@@ -33,12 +37,18 @@ int main() {
                     continue;
                 pMp->addAttriInit(kf, jdx);
                 pMap->insertMapPoint(pMp, pMap);
+                KeyFrame::updateConnections(kf);
                 pMap->insertKeyFrame(kf, pMap);
             }
             pKfDB->addKeyFrame(kf);
         }
         if (idx == 19) {
-            idx = 9;
+            if (!flag) {
+                idx = 9;
+                flag = true;
+            } else {
+                break;
+            }
         }
         if (idx == 10) {
             std::cout << pose << std::endl;

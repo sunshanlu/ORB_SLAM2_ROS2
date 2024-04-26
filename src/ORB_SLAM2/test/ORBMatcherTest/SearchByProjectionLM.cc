@@ -34,7 +34,7 @@ int main() {
     pFrame->setPose(pose);
 
     ORBMatcher matcher;
-    matcher.searchByProjection(pFrame, mapPoints, 3);
+    matcher.searchByProjection(pFrame, mapPoints, 3, matches);
     int nInliers = Optimizer::OptimizePoseOnly(pFrame);
     std::cout << std::endl << pFrame->getPose() << std::endl;
     std::cout << "nInliers: " << nInliers << std::endl;

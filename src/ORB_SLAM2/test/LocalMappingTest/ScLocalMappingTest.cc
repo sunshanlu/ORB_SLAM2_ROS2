@@ -1,3 +1,4 @@
+/// 跟踪线程和局部建图线程串联测试
 #include <string>
 
 #include <fmt/format.h>
@@ -26,28 +27,17 @@ int main() {
     auto viewer = std::make_shared<Viewer>(pMap, tracker);
     tracker->setLocalMapper(localMapper);
     tracker->setViewer(viewer);
-    std::thread vThread(std::bind(&Viewer::run, viewer));
+    std::thread vThread(&Viewer::run, viewer);
+
     std::cout << std::endl;
     for (int idx = 0; idx < 4541; ++idx) {
         readImage(leftImg, rightImg, idx);
         cv::Mat pose = tracker->grabFrame(leftImg, rightImg);
-        if (idx % 3 == 0 && idx != 0) {
-            auto kf = tracker->updateCurrFrame();
-            for (std::size_t jdx = 0; jdx < kf->getMapPoints().size(); ++jdx) {
-                MapPoint::SharedPtr pMp = kf->getMapPoints()[jdx];
-                if (!pMp || pMp->isBad())
-                    continue;
-                pMp->addAttriInit(kf, jdx);
-                pMap->insertMapPoint(pMp, pMap);
-                KeyFrame::updateConnections(kf);
-                pMap->insertKeyFrame(kf, pMap);
-            }
-            pKfDB->addKeyFrame(kf);
-        }
+        localMapper->runOnce();
+        localMapper->addKF2DB(pKfDB);
         std::cout << idx << std::endl;
-        std::cout << pose << std::endl;
+        std::cout << pose << std::endl << std::endl;
     }
     vThread.join();
-
     return 0;
 }

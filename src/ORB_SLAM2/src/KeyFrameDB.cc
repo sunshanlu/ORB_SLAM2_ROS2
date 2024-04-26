@@ -14,8 +14,7 @@ KeyFrameDB::KeyFrameDB(std::size_t nWordNum) { mvConvertIdx.resize(nWordNum); }
  * @param pKf 输入的关键帧
  */
 void KeyFrameDB::addKeyFrame(KeyFrame::SharedPtr pKf) {
-    if (!pKf->isBowComputed())
-        pKf->computeBow();
+    pKf->computeBow();
     for (const auto &item : pKf->getBowVec())
         mvConvertIdx[item.first].push_back(pKf);
 }
@@ -33,8 +32,7 @@ void KeyFrameDB::addKeyFrame(KeyFrame::SharedPtr pKf) {
  */
 void KeyFrameDB::findRelocKfs(Frame::SharedPtr pFrame, std::vector<KeyFrame::SharedPtr> &candidateKfs) {
     candidateKfs.clear();
-    if (!pFrame->isBowComputed())
-        pFrame->computeBow();
+    pFrame->computeBow();
     std::map<KeyFrame::SharedPtr, std::size_t> kfAndWordNum; ///< 统计关键帧和相同单词数目
     for (const auto &item : pFrame->getBowVec()) {
         for (auto &kf : mvConvertIdx[item.first]) {

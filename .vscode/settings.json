@@ -98,6 +98,7 @@
         "iomanip": "cpp",
         "numeric": "cpp",
         "optional": "cpp",
-        "typeindex": "cpp"
+        "typeindex": "cpp",
+        "__errc": "cpp"
     }
 }

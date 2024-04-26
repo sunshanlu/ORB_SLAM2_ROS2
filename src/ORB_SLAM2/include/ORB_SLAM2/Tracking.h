@@ -3,12 +3,15 @@
 #include "Frame.h"
 #include "KeyFrame.h"
 #include "Map.h"
+#include "MapPoint.h"
 
 namespace ORB_SLAM2_ROS2 {
 enum class TrackingState { NOT_IMAGE_YET, NOT_INITING, OK, LOST };
 
 class KeyFrameDB;
 class PnPSolver;
+class LocalMapping;
+class Viewer;
 
 struct RelocBowParam {
     typedef std::shared_ptr<PnPSolver> PnPSolverPtr;
@@ -24,18 +27,19 @@ class Tracking {
 public:
     typedef std::vector<MapPoint::SharedPtr> TempMapPoints;
     typedef std::shared_ptr<KeyFrameDB> KFrameDBPtr;
+    typedef std::shared_ptr<LocalMapping> LocalMappingPtr;
+    typedef std::shared_ptr<Viewer> ViewerPtr;
 
-    Tracking(Map::SharedPtr pMap, KFrameDBPtr pKfDB)
-        : mnFeatures(2000)
-        , mnInitFeatures(3000)
-        , mnMaxThresh(20)
-        , mnMinThresh(7)
-        , mpMap(pMap)
-        , mpKfDB(pKfDB) {
-        msBriefTemFp = "/home/rookie-lu/Project/ORB-SLAM2/ORB-SLAM2-ROS2/config/BRIEF_TEMPLATE.txt";
-    }
+    Tracking(Map::SharedPtr pMap, KFrameDBPtr pKfDB);
 
+    /// 前端运行主逻辑
     cv::Mat grabFrame(cv::Mat leftImg, cv::Mat rightImg);
+
+    /// 设置后端线程对象
+    void setLocalMapper(LocalMappingPtr pLocalMapper) { mpLocalMapper = pLocalMapper; }
+
+    /// 设置可视化线程
+    void setViewer(ViewerPtr pViewer) { mpViewer = pViewer; }
 
     /// 根据当前帧进行初始地图的初始化
     void initForStereo();
@@ -79,6 +83,39 @@ public:
     /// 将当前帧升级为关键帧
     KeyFrame::SharedPtr updateCurrFrame();
 
+    /// 判断是否需要插入关键帧
+    bool needNewKeyFrame();
+
+    /// 向局部建图线程中插入关键帧
+    void insertKeyFrame();
+
+    /// 获取跟踪线程中的局部地图点
+    std::vector<MapPoint::SharedPtr> getLocalMps() {
+        std::unique_lock<std::mutex> lock(mMutexLMps);
+        return mvpLocalMps;
+    }
+
+    /// 获取跟踪线程是否更新
+    bool getUpdate() {
+        std::unique_lock<std::mutex> lock(mMutexUpdate);
+        return mbUpdate;
+    }
+
+    /// 设置跟踪线程是否更新
+    void setUpdate(bool flag) {
+        std::unique_lock<std::mutex> lock(mMutexUpdate);
+        mbUpdate = flag;
+    }
+
+    /// 展示当前关键帧
+    void showCurrentFrame() {
+        cv::Mat display;
+        cv::drawKeypoints(mleftImg, mpCurrFrame->getLeftKeyPoints(), display);
+        cv::imshow("kps display", display);
+        cv::waitKey(0);
+        cv::destroyWindow("kps display");
+    }
+
 private:
     /// 使用关键帧数据库，寻找初步关键帧
     bool findInitialKF(std::vector<KeyFrame::SharedPtr> &vpCandidateKFs, int &candidateNum);
@@ -114,5 +151,14 @@ private:
     std::vector<KeyFrame::SharedPtr> mvpLocalKfs; ///< 局部地图关键帧
     std::vector<MapPoint::SharedPtr> mvpLocalMps; ///< 局部地图点
     KFrameDBPtr mpKfDB;                           ///< 关键帧数据库
+    LocalMappingPtr mpLocalMapper;                ///< 局部建图线程对象
+    ViewerPtr mpViewer;                           ///< 可视化对象
+    long mnLastRelocId = -1;                      ///< 上一次重定位帧id
+    unsigned int mnLastInsertId = 0;              ///< 上次插入关键帧对应普通帧的id
+    bool mbOnlyTracking = false;                  ///< 是否是仅跟踪模式
+    mutable std::mutex mMutexLMps;                ///< 维护mvpLocalMps的互斥锁
+    bool mbUpdate = false;                        ///< 跟踪线程的局部地图是否产生更新
+    mutable std::mutex mMutexUpdate;              ///< 维护mvpLocalMps是否更新的互斥锁
+    cv::Mat mleftImg;                             ///< 当前帧的左图
 };
 } // namespace ORB_SLAM2_ROS2

@@ -2,6 +2,7 @@
 #include "ORB_SLAM2/Camera.h"
 #include "ORB_SLAM2/Error.h"
 #include "ORB_SLAM2/KeyFrame.h"
+#include "ORB_SLAM2/MapPoint.h"
 
 namespace ORB_SLAM2_ROS2 {
 
@@ -92,7 +93,10 @@ Frame::Frame(cv::Mat leftImg, cv::Mat rightImg, int nFeatures, const std::string
  * @param idx 输入的指定位置索引
  * @param pMp 输入的地图点
  */
-void VirtualFrame::setMapPoint(int idx, MapPointPtr pMp) { mvpMapPoints[idx] = pMp; }
+void VirtualFrame::setMapPoint(int idx, MapPointPtr pMp) {
+    std::unique_lock<std::mutex> lock(mMutexMapPoints);
+    mvpMapPoints[idx] = pMp;
+}
 
 /**
  * @brief 初始化地图点
@@ -104,7 +108,7 @@ void Frame::unProject(std::vector<MapPoint::SharedPtr> &mapPoints) {
     mapPoints.clear();
     for (std::size_t idx = 0; idx < mvFeatsLeft.size(); ++idx) {
         assert(!mTcw.empty() && !mRwc.empty() && !mtwc.empty());
-        cv::Mat p3dC = unProject(idx);
+        cv::Mat p3dC = VirtualFrame::unProject(idx);
         if (!p3dC.empty()) {
             cv::Mat p3dW = mRwc * p3dC + mtwc;
             auto pMp = mvpMapPoints[idx];
@@ -158,7 +162,10 @@ std::vector<KeyFrame::SharedPtr> VirtualFrame::getConnectedKfs(int th) {
  *
  * @return std::vector<MapPointPtr> 输出的地图点
  */
-std::vector<MapPoint::SharedPtr> &VirtualFrame::getMapPoints() { return mvpMapPoints; }
+std::vector<MapPoint::SharedPtr> VirtualFrame::getMapPoints() {
+    std::unique_lock<std::mutex> lock(mMutexMapPoints);
+    return mvpMapPoints;
+}
 
 /**
  * @brief 逆投影到相机坐标系中（根据特征点位置和深度）
@@ -166,7 +173,7 @@ std::vector<MapPoint::SharedPtr> &VirtualFrame::getMapPoints() { return mvpMapPo
  * @param idx 左图特征点索引
  * @return cv::Mat 输出的相机坐标系下的3D点
  */
-cv::Mat Frame::unProject(std::size_t idx) {
+cv::Mat VirtualFrame::unProject(std::size_t idx) {
     const cv::KeyPoint &lKp = mvFeatsLeft[idx];
     const double &depth = mvDepths[idx];
     if (depth < 0)

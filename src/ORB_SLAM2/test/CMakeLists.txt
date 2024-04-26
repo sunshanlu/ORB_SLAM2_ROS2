@@ -5,8 +5,9 @@ list(REMOVE_ITEM SOURCE_FILE ${PROJECT_SOURCE_DIR}/src/main.cc)
 include_directories(${PROJECT_SOURCE_DIR}/include)
 
 # ORB特征点提取器测试
-add_executable(ORBExtractorTest ${SOURCE_FILE}
-                                ./ORBExtractorTest/ORBExtractorTest.cc)
+add_executable(
+    ORBExtractorTest ${SOURCE_FILE} ./ORBExtractorTest/ORBExtractorTest.cc
+                     ./ORBExtractorTest/ORB_SLAM2_E/ORBextractor.cc)
 ament_target_dependencies(ORBExtractorTest rclcpp)
 target_link_libraries(ORBExtractorTest DEPEND_LIBS)
 
@@ -58,3 +59,15 @@ target_link_libraries(NormalTracking DEPEND_LIBS)
 add_executable(RelocTracking ${SOURCE_FILE} ./TrackingTest/RelocTracking.cc)
 ament_target_dependencies(RelocTracking rclcpp)
 target_link_libraries(RelocTracking DEPEND_LIBS)
+
+# LocalMapping局部建图模块测试 串联测试
+add_executable(ScLocalMappingTest ${SOURCE_FILE}
+                                  ./LocalMappingTest/ScLocalMappingTest.cc)
+ament_target_dependencies(ScLocalMappingTest rclcpp)
+target_link_libraries(ScLocalMappingTest DEPEND_LIBS)
+
+# LocalMapping局部建图模块测试 并联测试
+add_executable(ParallMappingTest ${SOURCE_FILE}
+                                 ./LocalMappingTest/ParallMappingTest.cc)
+ament_target_dependencies(ParallMappingTest rclcpp)
+target_link_libraries(ParallMappingTest DEPEND_LIBS)

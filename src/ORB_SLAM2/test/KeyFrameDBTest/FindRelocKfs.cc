@@ -3,6 +3,7 @@
 #include "ORB_SLAM2/Frame.h"
 #include "ORB_SLAM2/KeyFrame.h"
 #include "ORB_SLAM2/KeyFrameDB.h"
+#include "ORB_SLAM2/MapPoint.h"
 
 using namespace ORB_SLAM2_ROS2;
 

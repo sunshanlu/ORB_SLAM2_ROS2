@@ -7,7 +7,6 @@
 #include <DBoW3/DBoW3.h>
 #include <rclcpp/rclcpp.hpp>
 
-#include "MapPoint.h"
 #include "ORBExtractor.h"
 #include "ORBMatcher.h"
 
@@ -15,6 +14,7 @@ namespace ORB_SLAM2_ROS2 {
 
 class Optimizer;
 class KeyFrame;
+class MapPoint;
 
 /// 帧的抽象类（以析构函数作为纯虚函数）
 class VirtualFrame {
@@ -44,7 +44,9 @@ public:
         , mBowVec(other.mBowVec)
         , mFeatVec(other.mFeatVec)
         , mGrids(other.mGrids)
-        , mpRefKF(other.mpRefKF) {
+        , mpRefKF(other.mpRefKF)
+        , mnMaxU(other.mnMaxU)
+        , mnMaxV(other.mnMaxV) {
 
         // 对cv::Mat类型的数据进行深拷贝
         std::vector<cv::Mat> leftDesc(other.mvLeftDescriptor.size()), rightDesc(other.mRightDescriptor.size());
@@ -64,6 +66,13 @@ public:
         other.mTwc.copyTo(mTwc);
     }
 
+    /// 获取某一个特征点的地图点
+    cv::Mat unProject(std::size_t idx);
+
+    /// 获取左右帧ORB描述子api
+    const std::vector<cv::Mat> &getLeftDescriptor() const { return mvLeftDescriptor; }
+    const std::vector<cv::Mat> &getRightDescriptor() const { return mRightDescriptor; }
+
     /// 获取与当前帧相连的关键帧，且共视权重大于等于th
     virtual std::vector<KeyFramePtr> getConnectedKfs(int th);
 
@@ -78,13 +87,23 @@ public:
     void setMapPoint(int idx, MapPointPtr pMp);
 
     /// 获取this的地图点信息
-    virtual std::vector<MapPointPtr> &getMapPoints();
+    virtual std::vector<MapPointPtr> getMapPoints();
+
+    virtual MapPointPtr getMapPoint(std::size_t idx) {
+        std::unique_lock<std::mutex> lock(mMutexMapPoints);
+        return mvpMapPoints[idx];
+    }
 
     /// 将世界坐标系下地图点投影到this的像素坐标系中
     cv::Point2f project2UV(const cv::Mat &p3dW, bool &isPositive);
 
     /// 在给定的区域里面快速符合要求的特征点
     std::vector<std::size_t> findFeaturesInArea(const cv::KeyPoint &kp, float radius, int minNLevel, int maxNLevel);
+
+    const std::vector<double> &getDepth() const { return mvDepths; }
+
+    const std::vector<double> &getRightU() const { return mvFeatsRightU; }
+    const double &getRightU(const std::size_t &idx) const { return mvFeatsRightU[idx]; }
 
     /// 计算相似程度
     double computeSimilarity(const VirtualFrame &other) { return mpVoc->score(mBowVec, other.mBowVec); }
@@ -114,6 +133,30 @@ public:
         return mTcw.clone();
     }
 
+    /**
+     * @brief 获取位姿
+     *
+     * @param Rcw 输出的旋转矩阵
+     * @param tcw 输出的平移向量
+     */
+    void getPose(cv::Mat &Rcw, cv::Mat &tcw) const {
+        std::unique_lock<std::mutex> lock(mPoseMutex);
+        mRcw.copyTo(Rcw);
+        mtcw.copyTo(tcw);
+    }
+
+    /**
+     * @brief 获取位姿
+     *
+     * @param Rwc
+     * @param twc
+     */
+    void getPoseInv(cv::Mat &Rwc, cv::Mat &twc) {
+        std::unique_lock<std::mutex> lock(mPoseMutex);
+        mRwc.copyTo(Rwc);
+        mtwc.copyTo(twc);
+    }
+
     /// 获取帧中图像金字塔的缩放层级
     static float getScaledFactor(const int &nLevel) { return mvfScaledFactors[nLevel]; }
 
@@ -130,17 +173,24 @@ public:
     const std::vector<cv::KeyPoint> &getLeftKeyPoints() const { return mvFeatsLeft; }
     const std::vector<cv::KeyPoint> &getRightKeyPoints() const { return mvFeatsRight; }
 
+    /// 获取左右帧ORB特征点api
+    const cv::KeyPoint &getLeftKeyPoint(const std::size_t &idx) const { return mvFeatsLeft[idx]; }
+    const cv::KeyPoint &getRightKeyPoint(const std::size_t &idx) const { return mvFeatsRight[idx]; }
+
     /// 计算词袋
     void computeBow() {
-        mpVoc->transform(mvLeftDescriptor, mBowVec, mFeatVec, 3);
+        std::unique_lock<std::mutex> lock(mBowMutex);
+        if (mbBowComputed)
+            return;
+        mpVoc->transform(mvLeftDescriptor, mBowVec, mFeatVec, 4);
         mbBowComputed = true;
     }
 
-    /// 获取是否已经计算过词袋了
-    bool isBowComputed() const { return mbBowComputed; }
-
     /// 获取词袋信息
-    const DBoW3::BowVector &getBowVec() const { return mBowVec; }
+    const DBoW3::BowVector &getBowVec() const {
+        std::unique_lock<std::mutex> lock(mBowMutex);
+        return mBowVec;
+    }
 
     /// 获取描述子
     std::vector<cv::Mat> &getDescriptor() { return mvLeftDescriptor; }
@@ -161,27 +211,29 @@ public:
     virtual ~VirtualFrame() = default;
 
 protected:
-    std::vector<cv::KeyPoint> mvFeatsLeft;         ///< 左图特征点坐标
-    std::vector<cv::KeyPoint> mvFeatsRight;        ///< 右图特征点坐标
-    std::vector<cv::Mat> mvLeftDescriptor;         ///< 左图特征描述子
-    std::vector<cv::Mat> mRightDescriptor;         ///< 右图特征描述子
-    std::vector<double> mvDepths;                  ///< 特征点对应的深度值
-    std::vector<double> mvFeatsRightU;             ///< 右图特征点匹配的u坐标
-    std::vector<MapPoint::SharedPtr> mvpMapPoints; ///< 左图对应的地图点
-    bool mbBowComputed = false;                    ///< 是否计算了BOW向量
-    DBoW3::BowVector mBowVec;                      ///< 左图的BOW向量
-    DBoW3::FeatureVector mFeatVec;                 ///< 左图的特征向量
-    static std::string msVoc;                      ///< 字典词袋路径
-    mutable std::mutex mPoseMutex;                 ///< 位姿互斥锁
-    cv::Mat mTcw, mTwc;                            ///< 帧位姿
-    cv::Mat mRcw, mRwc;                            ///< 位姿的旋转矩阵
-    cv::Mat mtcw, mtwc;                            ///< 位姿的平移向量
-    static std::vector<float> mvfScaledFactors;    ///< 特征点缩放因子
-    static bool mbScaled;                          ///< 金字塔缩放因子是否初始化
-    static unsigned mnGridHeight;                  ///< 网格高度
-    static unsigned mnGridWidth;                   ///< 网格宽度
-    GridsType mGrids;                              ///< 网格（第一层为行，第二层为列）
-    KeyFramePtr mpRefKF;                           ///< 普通帧的参考关键帧
+    std::vector<cv::KeyPoint> mvFeatsLeft;      ///< 左图特征点坐标
+    std::vector<cv::KeyPoint> mvFeatsRight;     ///< 右图特征点坐标
+    std::vector<cv::Mat> mvLeftDescriptor;      ///< 左图特征描述子
+    std::vector<cv::Mat> mRightDescriptor;      ///< 右图特征描述子
+    std::vector<double> mvDepths;               ///< 特征点对应的深度值
+    std::vector<double> mvFeatsRightU;          ///< 右图特征点匹配的u坐标
+    std::vector<MapPointPtr> mvpMapPoints;      ///< 左图对应的地图点
+    mutable std::mutex mMutexMapPoints;         ///< 地图点对应的互斥锁
+    mutable std::mutex mBowMutex;               ///< 对应词袋向量的互斥锁
+    bool mbBowComputed = false;                 ///< 是否计算了BOW向量
+    DBoW3::BowVector mBowVec;                   ///< 左图的BOW向量
+    DBoW3::FeatureVector mFeatVec;              ///< 左图的特征向量
+    static std::string msVoc;                   ///< 字典词袋路径
+    mutable std::mutex mPoseMutex;              ///< 位姿互斥锁
+    cv::Mat mTcw, mTwc;                         ///< 帧位姿
+    cv::Mat mRcw, mRwc;                         ///< 位姿的旋转矩阵
+    cv::Mat mtcw, mtwc;                         ///< 位姿的平移向量
+    static std::vector<float> mvfScaledFactors; ///< 特征点缩放因子
+    static bool mbScaled;                       ///< 金字塔缩放因子是否初始化
+    static unsigned mnGridHeight;               ///< 网格高度
+    static unsigned mnGridWidth;                ///< 网格宽度
+    GridsType mGrids;                           ///< 网格（第一层为行，第二层为列）
+    KeyFramePtr mpRefKF;                        ///< 普通帧的参考关键帧
 
 public:
     static VocabPtr mpVoc; ///< 字典词袋
@@ -213,6 +265,8 @@ public:
     Frame &operator=(const Frame &) = delete;
     ~Frame() = default;
 
+    std::size_t getID() { return mnID; }
+
     /// 获取左右帧图像api
     const cv::Mat &getLeftImage() const { return mLeftIm; }
     const cv::Mat &getRightImage() const { return mRightIm; }
@@ -221,18 +275,11 @@ public:
     const std::vector<cv::Mat> &getLeftPyramid() const { return mpExtractorLeft->getPyramid(); }
     const std::vector<cv::Mat> &getRightPyramid() const { return mpExtractorRight->getPyramid(); }
 
-    /// 获取左右帧ORB描述子api
-    const std::vector<cv::Mat> &getLeftDescriptor() const { return mvLeftDescriptor; }
-    const std::vector<cv::Mat> &getRightDescriptor() const { return mRightDescriptor; }
-
     // 显示双目匹配结果
     void showStereoMatches() const;
 
     /// 利用双目进行三角化得到地图点
-    void unProject(std::vector<MapPoint::SharedPtr> &mapPoints);
-
-    /// 获取某一个特征点的地图点
-    cv::Mat unProject(std::size_t idx);
+    void unProject(std::vector<MapPointPtr> &mapPoints);
 
     /// 获取帧中有深度特征点的数目
     int getN() { return mnN; }

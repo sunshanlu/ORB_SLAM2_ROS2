@@ -1,0 +1,67 @@
+{
+    // See https://go.microsoft.com/fwlink/?LinkId=733558
+    // for the documentation about the tasks.json format
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "colcon: build Debug",
+            "type": "shell",
+            "command": "colcon build --build-base ${workspaceFolder}/build/Debug --install-base ${workspaceFolder}/install/Debug --cmake-args -DCMAKE_BUILD_TYPE=Debug",
+            "problemMatcher": []
+        },
+        {
+            "label": "colcon: build Release",
+            "type": "shell",
+            "command": "colcon build --build-base ${workspaceFolder}/build/Release --install-base ${workspaceFolder}/install/Release --cmake-args -DCMAKE_BUILD_TYPE=Release",
+            "problemMatcher": []
+        },
+        {
+            "label": "colcon: build target ScLocalMappingTest",
+            "type": "shell",
+            "command": "colcon build --build-base ${workspaceFolder}/build/Debug --install-base ${workspaceFolder}/install/Debug --cmake-args -DCMAKE_BUILD_TYPE=Debug --cmake-target ScLocalMappingTest",
+            "problemMatcher": []
+        },
+        {
+            "label": "colcon: build target NormalTracking",
+            "type": "shell",
+            "command": "colcon build --build-base ${workspaceFolder}/build/Debug --install-base ${workspaceFolder}/install/Debug --cmake-args -DCMAKE_BUILD_TYPE=Debug --cmake-target NormalTracking",
+            "problemMatcher": []
+        },
+        {
+            "label": "colcon: build target ParallMappingTest Release",
+            "type": "shell",
+            "command": "colcon build --build-base ${workspaceFolder}/build/Release --install-base ${workspaceFolder}/install/Release --cmake-args -DCMAKE_BUILD_TYPE=Release --cmake-target ParallMappingTest",
+            "problemMatcher": []
+        },
+        {
+            "label": "colcon: build target ParallMappingTest Debug",
+            "type": "shell",
+            "command": "colcon build --build-base ${workspaceFolder}/build/Debug --install-base ${workspaceFolder}/install/Debug --cmake-args -DCMAKE_BUILD_TYPE=Debug --cmake-target ParallMappingTest",
+            "problemMatcher": []
+        },
+        {
+            "label": "colcon: build target NormalTracking Release",
+            "type": "shell",
+            "command": "colcon build --build-base ${workspaceFolder}/build/Release --install-base ${workspaceFolder}/install/Release --cmake-args -DCMAKE_BUILD_TYPE=Release --cmake-target NormalTracking",
+            "problemMatcher": []
+        },
+        {
+            "label": "colcon: build target ScLocalMappingTest Release",
+            "type": "shell",
+            "command": "colcon build --build-base ${workspaceFolder}/build/Release --install-base ${workspaceFolder}/install/Release --cmake-args -DCMAKE_BUILD_TYPE=Release --cmake-target ScLocalMappingTest",
+            "problemMatcher": []
+        },
+        {
+            "label": "colcon: build target ORBExtractorTest",
+            "type": "shell",
+            "command": "colcon build --build-base ${workspaceFolder}/build/Debug --install-base ${workspaceFolder}/install/Debug --cmake-args -DCMAKE_BUILD_TYPE=Debug --cmake-target ORBExtractorTest",
+            "problemMatcher": []
+        },
+        {
+            "label": "colcon: build target SearchByStereoTest",
+            "type": "shell",
+            "command": "colcon build --build-base ${workspaceFolder}/build/Debug --install-base ${workspaceFolder}/install/Debug --cmake-args -DCMAKE_BUILD_TYPE=Debug --cmake-target SearchByStereoTest",
+            "problemMatcher": []
+        }
+    ]
+}
