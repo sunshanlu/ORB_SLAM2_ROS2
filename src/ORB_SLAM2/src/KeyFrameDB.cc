@@ -15,8 +15,64 @@ KeyFrameDB::KeyFrameDB(std::size_t nWordNum) { mvConvertIdx.resize(nWordNum); }
  */
 void KeyFrameDB::addKeyFrame(KeyFrame::SharedPtr pKf) {
     pKf->computeBow();
+    std::unique_lock<std::mutex> lock(mMutex);
     for (const auto &item : pKf->getBowVec())
-        mvConvertIdx[item.first].push_back(pKf);
+        mvConvertIdx[item.first].insert(pKf);
+}
+
+/**
+ * @brief 向关键数据库中删除关键帧
+ *
+ * @param pKf 输入的待删除的关键帧
+ */
+void KeyFrameDB::eraseKeyFrame(KeyFrame::SharedPtr pKf) {
+    std::unique_lock<std::mutex> lock(mMutex);
+    for (auto &convertId : mvConvertIdx)
+        convertId.erase(pKf);
+}
+
+/// 最小相同单词数目过滤器
+void KeyFrameDB::minWordFilter(KfAndWordDB &kfAndWordNum) {
+    std::size_t maxWordNum = 0;
+    std::for_each(kfAndWordNum.begin(), kfAndWordNum.end(), [&](const auto &mpItem) -> void {
+        if (mpItem.second > maxWordNum)
+            maxWordNum = mpItem.second;
+    });
+    float th1 = (float)maxWordNum * 0.8;
+    for (auto iter = kfAndWordNum.begin(); iter != kfAndWordNum.end();) {
+        if (iter->second < th1) {
+            iter = kfAndWordNum.erase(iter);
+        } else
+            ++iter;
+    }
+}
+
+/**
+ * @brief 获取关键帧和相同单词数目的数据库信息
+ *
+ * @param pFrame        输入的待统计的帧
+ * @param kfAndWordNum  输出的统计结果
+ */
+void KeyFrameDB::getKfAndWordDB(VirtualFramePtr pFrame, KfAndWordDB &kfAndWordNum,
+                                const std::set<KeyFramePtr> &ignoreKfs) {
+    ConvertIdx vConvertIdx;
+    {
+        std::unique_lock<std::mutex> lock(mMutex);
+        vConvertIdx = mvConvertIdx;
+    }
+    for (const auto &item : pFrame->getBowVec()) {
+        for (auto &kf : vConvertIdx[item.first]) {
+            if (kf && !kf->isBad()) {
+                if (ignoreKfs.find(kf) != ignoreKfs.end())
+                    continue;
+                ++kfAndWordNum[kf];
+            } else {
+                if (kfAndWordNum.find(kf) != kfAndWordNum.end()) {
+                    kfAndWordNum.erase(kf);
+                }
+            }
+        }
+    }
 }
 
 /**
@@ -33,30 +89,27 @@ void KeyFrameDB::addKeyFrame(KeyFrame::SharedPtr pKf) {
 void KeyFrameDB::findRelocKfs(Frame::SharedPtr pFrame, std::vector<KeyFrame::SharedPtr> &candidateKfs) {
     candidateKfs.clear();
     pFrame->computeBow();
-    std::map<KeyFrame::SharedPtr, std::size_t> kfAndWordNum; ///< 统计关键帧和相同单词数目
-    for (const auto &item : pFrame->getBowVec()) {
-        for (auto &kf : mvConvertIdx[item.first]) {
-            if (kf && !kf->isBad()) {
-                ++kfAndWordNum[kf];
-            } else {
-                if (kfAndWordNum.find(kf) != kfAndWordNum.end()) {
-                    kfAndWordNum.erase(kf);
-                }
-            }
-        }
-    }
-    std::size_t maxWordNum = 0;
-    std::for_each(kfAndWordNum.begin(), kfAndWordNum.end(), [&](const auto &mpItem) -> void {
-        if (mpItem.second > maxWordNum)
-            maxWordNum = mpItem.second;
-    });
-    float th1 = (float)maxWordNum * 0.8;
-    for (auto iter = kfAndWordNum.begin(); iter != kfAndWordNum.end();) {
-        if (iter->second < th1) {
-            iter = kfAndWordNum.erase(iter);
-        } else
-            ++iter;
-    }
+    KfAndWordDB kfAndWordNum;
+
+    /// 统计关键帧和相同单词数目
+    getKfAndWordDB(pFrame, kfAndWordNum);
+
+    /// 最小相同单词过滤器
+    minWordFilter(kfAndWordNum);
+
+    /// 候选关键帧组过滤器
+    groupFilter(pFrame, kfAndWordNum, candidateKfs);
+}
+
+/**
+ * @brief 候选关键帧组过滤器
+ *
+ * @param pFrame        输入的回环闭合的当前关键帧
+ * @param kfAndWordNum  输入的候选关键帧和单词数目数据库
+ * @param candidateKfs  输出的候选关键帧
+ */
+void KeyFrameDB::groupFilter(VirtualFramePtr pFrame, KfAndWordDB &kfAndWordNum,
+                             std::vector<KeyFrame::SharedPtr> &candidateKfs) {
     std::vector<Group> candidateKfGroups;
     auto end = kfAndWordNum.end();
     std::size_t bestGroupIdx = 0;
@@ -97,6 +150,64 @@ void KeyFrameDB::findRelocKfs(Frame::SharedPtr pFrame, std::vector<KeyFrame::Sha
             candidateKfsSet.insert(group.mpBestKf);
     }
     std::copy(candidateKfsSet.begin(), candidateKfsSet.end(), std::back_inserter(candidateKfs));
+}
+
+/**
+ * @brief 最小关键帧过滤器
+ *
+ * @param pFrame        输入的待寻找的回环闭合关键帧
+ * @param kfAndWordNum  输入的候选关键帧和单词数目数据库
+ */
+void KeyFrameDB::minScoreFilter(VirtualFramePtr pFrame, KfAndWordDB &kfAndWordNum) {
+    auto vConnected = pFrame->getConnectedKfs(15);
+    double minScore = 1;
+    for (auto &kf : vConnected) {
+        if (!kf || kf->isBad())
+            continue;
+        double score = pFrame->computeSimilarity(*kf);
+        if (score < minScore)
+            minScore = score;
+    }
+    for (auto iter = kfAndWordNum.begin(); iter != kfAndWordNum.end();) {
+        double score = pFrame->computeSimilarity(*iter->first);
+        if (score < minScore)
+            iter = kfAndWordNum.erase(iter);
+        else
+            ++iter;
+    }
+}
+
+/**
+ * @brief 寻找回环闭合候选关键帧
+ * @details
+ *      1. 最大单词数目的0.8倍作为阈值1
+ *      2. 当前关键帧和它共视关键帧的最低相似度作为阈值2
+ *      3. 对满足上面两个条件的关键帧，找到10个共视关键帧组成候选关键帧组
+ *      4. 找到相似性得分最高的组，以其的0.75倍作为阈值3
+ *
+ * @param pFrame
+ * @param candidateKfs
+ */
+void KeyFrameDB::findLoopCloseKfs(KeyFramePtr pFrame, std::vector<KeyFramePtr> &candidateKfs) {
+    pFrame->computeBow();
+    KfAndWordDB kfAndWordNum;
+
+    auto vConnectedKfs = pFrame->VirtualFrame::getConnectedKfs(0);
+    std::set<KeyFrame::SharedPtr> sConnectedKfs;
+    for (auto &kf : vConnectedKfs)
+        sConnectedKfs.insert(kf);
+
+    /// 统计关键帧和相同单词数目
+    getKfAndWordDB(pFrame, kfAndWordNum, sConnectedKfs);
+
+    /// 最小相同单词过滤器KeyFrameDB
+    minWordFilter(kfAndWordNum);
+
+    /// 共视关键帧过滤器
+    minScoreFilter(pFrame, kfAndWordNum);
+
+    /// 候选关键帧组过滤器
+    groupFilter(pFrame, kfAndWordNum, candidateKfs);
 }
 
 } // namespace ORB_SLAM2_ROS2

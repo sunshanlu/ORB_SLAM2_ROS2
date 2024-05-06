@@ -99,6 +99,7 @@
         "numeric": "cpp",
         "optional": "cpp",
         "typeindex": "cpp",
-        "__errc": "cpp"
+        "__errc": "cpp",
+        "regex": "cpp"
     }
 }
