@@ -62,6 +62,72 @@
             "type": "shell",
             "command": "colcon build --build-base ${workspaceFolder}/build/Debug --install-base ${workspaceFolder}/install/Debug --cmake-args -DCMAKE_BUILD_TYPE=Debug --cmake-target SearchByStereoTest",
             "problemMatcher": []
+        },
+        {
+            "label": "colcon: build target RelocTracking",
+            "type": "shell",
+            "command": "colcon build --build-base ${workspaceFolder}/build/Debug --install-base ${workspaceFolder}/install/Debug --cmake-args -DCMAKE_BUILD_TYPE=Debug --cmake-target RelocTracking",
+            "problemMatcher": []
+        },
+        {
+            "label": "colcon: build target EPnPTest",
+            "type": "shell",
+            "command": "colcon build --build-base ${workspaceFolder}/build/Debug --install-base ${workspaceFolder}/install/Debug --cmake-args -DCMAKE_BUILD_TYPE=Debug --cmake-target EPnPTest",
+            "problemMatcher": []
+        },
+        {
+            "label": "colcon: build target OptimizePoseOnlyTest",
+            "type": "shell",
+            "command": "colcon build --build-base ${workspaceFolder}/build/Debug --install-base ${workspaceFolder}/install/Debug --cmake-args -DCMAKE_BUILD_TYPE=Debug --cmake-target OptimizePoseOnlyTest",
+            "problemMatcher": []
+        },
+        {
+            "label": "colcon: build target Sim3SolverTest",
+            "type": "shell",
+            "command": "colcon build --build-base ${workspaceFolder}/build/Debug --install-base ${workspaceFolder}/install/Debug --cmake-args -DCMAKE_BUILD_TYPE=Debug --cmake-target Sim3SolverTest",
+            "problemMatcher": []
+        },
+        {
+            "label": "colcon: build target SearchBySim3Test",
+            "type": "shell",
+            "command": "colcon build --build-base ${workspaceFolder}/build/Debug --install-base ${workspaceFolder}/install/Debug --cmake-args -DCMAKE_BUILD_TYPE=Debug --cmake-target SearchBySim3Test",
+            "problemMatcher": []
+        },
+        {
+            "label": "colcon: build target OptimizeSim3Test",
+            "type": "shell",
+            "command": "colcon build --build-base ${workspaceFolder}/build/Debug --install-base ${workspaceFolder}/install/Debug --cmake-args -DCMAKE_BUILD_TYPE=Debug --cmake-target OptimizeSim3Test",
+            "problemMatcher": []
+        },
+        {
+            "label": "colcon: build target SearchBySim3MpsTest",
+            "type": "shell",
+            "command": "colcon build --build-base ${workspaceFolder}/build/Debug --install-base ${workspaceFolder}/install/Debug --cmake-args -DCMAKE_BUILD_TYPE=Debug --cmake-target SearchBySim3MpsTest",
+            "problemMatcher": []
+        },
+        {
+            "label": "colcon: build target FindLoopCloseKfsTest",
+            "type": "shell",
+            "command": "colcon build --build-base ${workspaceFolder}/build/Debug --install-base ${workspaceFolder}/install/Debug --cmake-args -DCMAKE_BUILD_TYPE=Debug --cmake-target FindLoopCloseKfsTest",
+            "problemMatcher": []
+        },
+        {
+            "label": "colcon: build target LoopClosingTest",
+            "type": "shell",
+            "command": "colcon build --build-base ${workspaceFolder}/build/Debug --install-base ${workspaceFolder}/install/Debug --cmake-args -DCMAKE_BUILD_TYPE=Debug --cmake-target LoopClosingTest",
+            "problemMatcher": []
+        },
+        {
+            "label": "colcon: build target LoopClosingTest Release",
+            "type": "shell",
+            "command": "colcon build --build-base ${workspaceFolder}/build/Release --install-base ${workspaceFolder}/install/Release --cmake-args -DCMAKE_BUILD_TYPE=Release --cmake-target LoopClosingTest",
+            "problemMatcher": []
+        },
+        {
+            "label": "colcon: build target SearchByBowTest",
+            "type": "shell",
+            "command": "colcon build --build-base ${workspaceFolder}/build/Debug --install-base ${workspaceFolder}/install/Debug --cmake-args -DCMAKE_BUILD_TYPE=Debug --cmake-target SearchByBowTest",
+            "problemMatcher": []
         }
     ]
 }

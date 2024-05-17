@@ -29,8 +29,9 @@ void MapPoint::addObservation(KeyFrame::SharedPtr pKf, std::size_t featId) {
         } else {
             auto desc1 = pKf->getDescriptor()[iter->second];
             auto desc2 = pKf->getDescriptor()[featId];
-            int dis1 = ORBMatcher::descDistance(desc1, mDescriptor);
-            int dis2 = ORBMatcher::descDistance(desc2, mDescriptor);
+            auto desc = getDesc();
+            int dis1 = ORBMatcher::descDistance(desc1, desc);
+            int dis2 = ORBMatcher::descDistance(desc2, desc);
             std::size_t destID = dis1 < dis2 ? iter->second : featId;
             mObs[pKf] = destID;
         }
@@ -66,13 +67,17 @@ void MapPoint::setDistance(KeyFramePtr pRefKf, std::size_t nFeatId) {
         std::unique_lock<std::mutex> lock(mPosMutex);
         center2Mp = mPoint3d - pRefKf->getFrameCenter();
     }
-    center2Mp.copyTo(mViewDirection);
+    setViewDirection(center2Mp);
     float x = center2Mp.at<float>(0, 0);
     float y = center2Mp.at<float>(1, 0);
     float z = center2Mp.at<float>(2, 0);
     float dist = std::sqrt(x * x + y * y + z * z);
-    mnMaxDistance = dist * std::pow(ORBExtractor::mfScaledFactor, kp.octave - 0);
-    mnMinDistance = dist * std::pow(ORBExtractor::mfScaledFactor, kp.octave - ORBExtractor::mnLevels + 1);
+
+    {
+        std::unique_lock<std::mutex> lock(mMutexDis);
+        mnMaxDistance = dist * std::pow(ORBExtractor::mfScaledFactor, kp.octave - 0);
+        mnMinDistance = dist * std::pow(ORBExtractor::mfScaledFactor, kp.octave - ORBExtractor::mnLevels + 1);
+    }
 }
 
 /**
@@ -82,14 +87,14 @@ void MapPoint::setDistance(KeyFramePtr pRefKf, std::size_t nFeatId) {
  * @param nFeatId   特征点id（二维关键帧）
  */
 void MapPoint::addAttriInit(KeyFramePtr pRefKf, std::size_t nFeatId) {
-    mpRefKf = pRefKf;
-    mnRefFaatID = nFeatId;
+    setRefKF(pRefKf, nFeatId);
     if (!pRefKf || pRefKf->isBad()) {
-        mbIsBad = true;
+        setBad();
         return;
     }
     addObservation(pRefKf, nFeatId);
-    pRefKf->getDescriptor()[nFeatId].copyTo(mDescriptor);
+
+    setDesc(pRefKf->getDescriptor()[nFeatId]);
     setDistance(pRefKf, nFeatId);
 }
 
@@ -135,15 +140,15 @@ bool MapPoint::isInVision(VirtualFramePtr pFrame, float &vecDistance, cv::Point2
     float z = p3dC.at<float>(2, 0);
     float distance = std::sqrt(x * x + y * y + z * z);
     vecDistance = distance;
-    if (distance > mnMaxDistance || distance < mnMinDistance)
+    if (!isGoodDistance(distance))
         return false;
     float u = x / z * Camera::mfFx + Camera::mfCx;
     float v = y / z * Camera::mfFy + Camera::mfCy;
     uv.x = u;
     uv.y = v;
-    if (u > pFrame->mnMaxU || u < 0 || v > pFrame->mnMaxV || v < 0)
+    if (!pFrame->isInImage(uv))
         return false;
-    cv::Mat viewDirection = Rcw * mViewDirection;
+    cv::Mat viewDirection = Rcw * getViewDirection();
     float viewDirectionAbs = cv::norm(viewDirection, cv::NORM_L2);
     cosTheta = viewDirection.dot(p3dC) / (distance * viewDirectionAbs);
     if (cosTheta < 0.5)
@@ -169,7 +174,9 @@ bool MapPoint::isBad() const {
  * @return int 金字塔层级
  */
 int MapPoint::predictLevel(float distance) const {
-    int level = cvRound(std::log(mnMaxDistance / distance) / std::log(ORBExtractor::mfScaledFactor));
+    float nMaxDis, nMinDis;
+    getDistance(nMaxDis, nMinDis);
+    int level = cvRound(std::log(nMaxDis / distance) / std::log(ORBExtractor::mfScaledFactor));
     if (level < 0)
         level = 0;
     else if (level > 7)
@@ -325,7 +332,7 @@ void MapPoint::updateDescriptor() {
             bestRow = row;
         }
     }
-    mDescriptor = vObs[bestRow].first->getDescriptor()[vObs[bestRow].second];
+    setDesc(vObs[bestRow].first->getDescriptor()[vObs[bestRow].second]);
 }
 
 /**
@@ -346,8 +353,9 @@ bool MapPoint::checkMapPoint(KeyFrame::SharedPtr pkf1, KeyFrame::SharedPtr pkf2,
     cv::Mat R1w, R2w, t1w, t2w;
     pkf1->getPose(R1w, t1w);
     pkf2->getPose(R2w, t2w);
-    const auto &kp1 = pkf1->getLeftKeyPoints()[nFeatId1];
-    const auto &kp2 = pkf2->getLeftKeyPoints()[nFeatId2];
+    cv::Mat p3dw = getPos();
+    const auto &kp1 = pkf1->getLeftKeyPoint(nFeatId1);
+    const auto &kp2 = pkf2->getLeftKeyPoint(nFeatId2);
     int nLayer1 = kp1.octave;
     int nLayer2 = kp2.octave;
     float lsacle1 = Frame::getScaledFactor(nLayer1);
@@ -355,8 +363,8 @@ bool MapPoint::checkMapPoint(KeyFrame::SharedPtr pkf1, KeyFrame::SharedPtr pkf2,
     float l2sacle1 = Frame::getScaledFactor2(nLayer1);
     float l2sacle2 = Frame::getScaledFactor2(nLayer2);
     /// 1. 三维点在相机前方
-    cv::Mat p3dC1 = R1w * mPoint3d + t1w;
-    cv::Mat p3dC2 = R2w * mPoint3d + t2w;
+    cv::Mat p3dC1 = R1w * p3dw + t1w;
+    cv::Mat p3dC2 = R2w * p3dw + t2w;
     if (p3dC1.at<float>(2) <= 0 || p3dC2.at<float>(2) <= 0)
         return false;
 
@@ -411,25 +419,26 @@ void MapPoint::updateNormalAndDepth() {
         setBad();
         return;
     }
-    cv::normalize(viewDirection, mViewDirection);
+    cv::normalize(viewDirection, viewDirection);
+    setViewDirection(viewDirection);
 
-    KeyFrame::SharedPtr pRefKF = mpRefKf.lock();
+    KeyFrame::SharedPtr pRefKF = getRefKF();
     bool flag = (pRefKF && !pRefKF->isBad());
     if (!flag) {
         float minCosTheta = 1;
         std::size_t bestIdx = 0;
         for (std::size_t idx = 0; idx < nNum; ++idx) {
-            const auto &viewDirection = viewDirections[idx];
-            float cosTheta = viewDirection.dot(mViewDirection) / cv::norm(viewDirection);
+            const auto &viewDirectioni = viewDirections[idx];
+            float cosTheta = viewDirectioni.dot(viewDirection) / cv::norm(viewDirectioni);
             if (cosTheta < minCosTheta) {
                 minCosTheta = cosTheta;
                 bestIdx = idx;
             }
         }
-        mpRefKf = positiveKFs[bestIdx];
         pRefKF = positiveKFs[bestIdx];
-        mnRefFaatID = featIDs[bestIdx];
-        setDistance(pRefKF, mnRefFaatID);
+        std::size_t nRefFeatID = featIDs[bestIdx];
+        setRefKF(pRefKF, nRefFeatID);
+        setDistance(pRefKF, nRefFeatID);
     }
 }
 
@@ -448,7 +457,7 @@ void MapPoint::eraseObservetion(KeyFramePtr pkf, bool checkRef) {
             mObs.erase(pkf);
     }
     if (checkRef) {
-        KeyFrame::SharedPtr pRefKF = mpRefKf.lock();
+        KeyFrame::SharedPtr pRefKF = getRefKF();
         if (pkf != pRefKF)
             return;
         else {
@@ -457,8 +466,22 @@ void MapPoint::eraseObservetion(KeyFramePtr pkf, bool checkRef) {
     }
 }
 
+/// 获取回环矫正关键帧
+KeyFrame::SharedPtr MapPoint::getLoopKF() { return mpLoopTime.lock(); }
+
+/// 设置回环矫正时刻关键帧
+void MapPoint::setLoopKF(KeyFramePtr pkf) { mpLoopTime = pkf; }
+
+/// 设置回环矫正参考关键帧
+void MapPoint::setLoopRefKF(KeyFramePtr refKF) { mpLoopRefKF = refKF; }
+
+KeyFrame::SharedPtr MapPoint::getLoopRefKF() { return mpLoopRefKF.lock(); }
+
 /// 获取参考关键帧
-KeyFrame::SharedPtr MapPoint::getRefKF() { return mpRefKf.lock(); }
+KeyFrame::SharedPtr MapPoint::getRefKF() {
+    std::unique_lock<std::mutex> lock(mMutexRefKF);
+    return mpRefKf.lock();
+}
 
 unsigned int MapPoint::mnNextId = 0;
 

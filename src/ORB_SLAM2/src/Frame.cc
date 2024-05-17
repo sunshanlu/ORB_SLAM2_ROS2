@@ -18,6 +18,7 @@ void Frame::showStereoMatches() const {
     std::vector<cv::KeyPoint> rightKps, leftKps;
     for (std::size_t i = 0; i < mvFeatsLeft.size(); ++i) {
         const auto &rightU = mvFeatsRightU[i];
+        const auto &depth = mvDepths[i];
         if (rightU == -1) {
             continue;
         }
@@ -28,6 +29,12 @@ void Frame::showStereoMatches() const {
         cv::line(showImage, lkp.pt, rkp.pt, cv::Scalar(255, 0, 0));
         rightKps.push_back(rkp);
         leftKps.push_back(lkp);
+        /// 输出左图，右图和深度值
+        std::cout << lkp.pt.x << std::endl;
+        std::cout << lkp.pt.y << std::endl;
+        std::cout << rightU << std::endl;
+        std::cout << depth << std::endl;
+        std::cout << "===========================" << std::endl;
     }
     cv::drawKeypoints(showImage, leftKps, showImage, cv::Scalar(0, 255, 0));
     cv::drawKeypoints(showImage, rightKps, showImage, cv::Scalar(0, 0, 255));
@@ -56,6 +63,9 @@ Frame::Frame(cv::Mat leftImg, cv::Mat rightImg, int nFeatures, const std::string
     , VirtualFrame(leftImg.cols, leftImg.rows) {
     mpExtractorLeft = std::make_shared<ORBExtractor>(mLeftIm, nFeatures, 8, 1.2, briefFp, maxThresh, minThresh);
     mpExtractorRight = std::make_shared<ORBExtractor>(mRightIm, nFeatures, 8, 1.2, briefFp, maxThresh, minThresh);
+
+    // mpExtractorLeft = std::make_shared<ORBExtractor>(mLeftIm, nFeatures, 1, 1.2, briefFp, maxThresh, minThresh);
+    // mpExtractorRight = std::make_shared<ORBExtractor>(mRightIm, nFeatures, 1, 1.2, briefFp, maxThresh, minThresh);
     if (!mbScaled) {
         mvfScaledFactors = mpExtractorLeft->getScaledFactors();
         mbScaled = true;
@@ -104,23 +114,25 @@ void VirtualFrame::setMapPoint(int idx, MapPointPtr pMp) {
  *      1. 普通帧没有创建地图点的权限，只是利用普通帧的信息进行地图点计算
  * @param mapPoints 输出的地图点信息
  */
-void Frame::unProject(std::vector<MapPoint::SharedPtr> &mapPoints) {
+int Frame::unProject(std::vector<MapPoint::SharedPtr> &mapPoints) {
     mapPoints.clear();
+    mapPoints.resize(mvFeatsLeft.size(), nullptr);
+    int nCreated = 0;
     for (std::size_t idx = 0; idx < mvFeatsLeft.size(); ++idx) {
-        assert(!mTcw.empty() && !mRwc.empty() && !mtwc.empty());
+        auto pMp = mvpMapPoints[idx];
+        if (pMp && !pMp->isBad()){
+            mapPoints[idx] = pMp;
+            continue;
+        }
         cv::Mat p3dC = VirtualFrame::unProject(idx);
         if (!p3dC.empty()) {
             cv::Mat p3dW = mRwc * p3dC + mtwc;
-            auto pMp = mvpMapPoints[idx];
-            if (!pMp || pMp->isBad())
-                mapPoints.push_back(MapPoint::create(p3dW));
-            else
-                mapPoints.push_back(pMp);
-        } else {
-            mapPoints.push_back(nullptr);
+            mapPoints[idx] = MapPoint::create(p3dW);
+            ++nCreated;
         }
     }
     mvpMapPoints = mapPoints;
+    return nCreated;
 }
 
 /**
@@ -255,7 +267,7 @@ std::string VirtualFrame::msVoc = "/home/rookie-lu/Project/ORB-SLAM2/ORB-SLAM2-R
 VirtualFrame::VocabPtr VirtualFrame::mpVoc = std::make_shared<DBoW3::Vocabulary>(VirtualFrame::msVoc);
 std::vector<float> VirtualFrame::mvfScaledFactors;
 bool VirtualFrame::mbScaled = false;
-std::size_t Frame::mnNextID = 0;
+std::size_t VirtualFrame::mnNextID = 0;
 unsigned VirtualFrame::mnGridHeight = 48;
 unsigned VirtualFrame::mnGridWidth = 64;
 } // namespace ORB_SLAM2_ROS2

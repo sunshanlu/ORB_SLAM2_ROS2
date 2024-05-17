@@ -46,7 +46,8 @@ public:
         , mGrids(other.mGrids)
         , mpRefKF(other.mpRefKF)
         , mnMaxU(other.mnMaxU)
-        , mnMaxV(other.mnMaxV) {
+        , mnMaxV(other.mnMaxV)
+        , mnID(other.mnID) {
 
         // 对cv::Mat类型的数据进行深拷贝
         std::vector<cv::Mat> leftDesc(other.mvLeftDescriptor.size()), rightDesc(other.mRightDescriptor.size());
@@ -122,6 +123,21 @@ public:
         mtwc = -mRwc * mtcw;
         mRwc.copyTo(mTwc(cv::Range(0, 3), cv::Range(0, 3)));
         mtwc.copyTo(mTwc(cv::Range(0, 3), cv::Range(3, 4)));
+    }
+
+    /**
+     * @brief 设置位姿
+     *
+     * @param Rcw 输入的位姿旋转矩阵
+     * @param tcw 输入的位姿平移向量
+     */
+    void setPose(cv::Mat Rcw, cv::Mat tcw) {
+        cv::Mat pose = cv::Mat::zeros(4, 4, CV_32F);
+        Rcw.copyTo(pose.rowRange(0, 3).colRange(0, 3));
+        tcw.copyTo(pose.rowRange(0, 3).col(3));
+        // std::cout << pose.at<float>(0, 0) << std::endl;
+        // std::cout << pose << std::endl;
+        setPose(pose);
     }
 
     /**
@@ -208,6 +224,13 @@ public:
         return mTwc.clone();
     }
 
+    /// 判断uv点是否在图像范围内
+    bool isInImage(const cv::Point2f &uv) {
+        if (uv.x < mnMaxU && uv.y < mnMaxV && uv.x > mnMinU && uv.y > mnMinV)
+            return true;
+        return false;
+    }
+
     virtual ~VirtualFrame() = default;
 
 protected:
@@ -234,11 +257,15 @@ protected:
     static unsigned mnGridWidth;                ///< 网格宽度
     GridsType mGrids;                           ///< 网格（第一层为行，第二层为列）
     KeyFramePtr mpRefKF;                        ///< 普通帧的参考关键帧
+    std::size_t mnID;                           ///< 帧ID
+    static std::size_t mnNextID;                ///< 下一帧ID
 
 public:
     static VocabPtr mpVoc; ///< 字典词袋
-    unsigned mnMaxU;       ///< 图像宽度
-    unsigned mnMaxV;       ///< 图像高度
+    unsigned mnMaxU;       ///< 去畸变后的最大宽度
+    unsigned mnMaxV;       ///< 去畸变后的最大高度
+    unsigned mnMinU = 0;   ///< 去畸变后的最小宽度
+    unsigned mnMinV = 0;   ///< 去畸变后的最小高度
 };
 
 /// 普通帧
@@ -279,7 +306,7 @@ public:
     void showStereoMatches() const;
 
     /// 利用双目进行三角化得到地图点
-    void unProject(std::vector<MapPointPtr> &mapPoints);
+    int unProject(std::vector<MapPointPtr> &mapPoints);
 
     /// 获取帧中有深度特征点的数目
     int getN() { return mnN; }
@@ -291,8 +318,6 @@ private:
     // 帧的构造函数
     Frame(cv::Mat leftImg, cv::Mat rightImg, int nFeatures, const std::string &briefFp, int maxThresh, int minThresh);
 
-    static std::size_t mnNextID;              ///< 下一帧ID
-    std::size_t mnID;                         ///< 帧ID
     cv::Mat mLeftIm, mRightIm;                ///< 左右图
     int mnN;                                  ///< 帧中有深度的地图点
     ORBExtractor::SharedPtr mpExtractorLeft;  ///< 左图特征提取器

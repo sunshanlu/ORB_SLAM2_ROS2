@@ -21,6 +21,15 @@ int main() {
 
     pFrame2->setPose(cv::Mat::eye(4, 4, CV_32F));
     pFrame2->unProject(mapPoints);
+    int nn = 0;
+    for (auto &pmp : mapPoints) {
+        if (pmp) {
+            nn++;
+        }
+    }
+    auto n = Optimizer::OptimizePoseOnly(pFrame2);
+    std::cout << pFrame2->getPose() << std::endl;
+
     auto pKframe = KeyFrame::create(*pFrame2);
 
     ORBMatcher matcher(0.7, true);
@@ -30,8 +39,9 @@ int main() {
     std::cout << pFrame2->getPose() << std::endl;
     std::cout << pFrame->getPose() << std::endl;
 
-    ORBMatcher::showMatches(pFrame->getLeftImage(), pFrame2->getLeftImage(), pFrame->getLeftKeyPoints(),
-                            pFrame2->getLeftKeyPoints(), matches);
+    ORBMatcher::showMatches(
+        pFrame->getLeftImage(), pFrame2->getLeftImage(), pFrame->getLeftKeyPoints(), pFrame2->getLeftKeyPoints(),
+        matches);
 
     return 0;
 }

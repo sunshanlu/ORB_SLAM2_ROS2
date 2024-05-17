@@ -16,7 +16,8 @@ KeyFrameDB::KeyFrameDB(std::size_t nWordNum) { mvConvertIdx.resize(nWordNum); }
 void KeyFrameDB::addKeyFrame(KeyFrame::SharedPtr pKf) {
     pKf->computeBow();
     std::unique_lock<std::mutex> lock(mMutex);
-    for (const auto &item : pKf->getBowVec())
+    const auto &bowVec = pKf->getBowVec();
+    for (const auto &item : bowVec)
         mvConvertIdx[item.first].insert(pKf);
 }
 
@@ -55,13 +56,10 @@ void KeyFrameDB::minWordFilter(KfAndWordDB &kfAndWordNum) {
  */
 void KeyFrameDB::getKfAndWordDB(VirtualFramePtr pFrame, KfAndWordDB &kfAndWordNum,
                                 const std::set<KeyFramePtr> &ignoreKfs) {
-    ConvertIdx vConvertIdx;
-    {
-        std::unique_lock<std::mutex> lock(mMutex);
-        vConvertIdx = mvConvertIdx;
-    }
-    for (const auto &item : pFrame->getBowVec()) {
-        for (auto &kf : vConvertIdx[item.first]) {
+    const auto &bowVec = pFrame->getBowVec();
+    std::unique_lock<std::mutex> lock(mMutex);
+    for (const auto &item : bowVec) {
+        for (auto &kf : mvConvertIdx[item.first]) {
             if (kf && !kf->isBad()) {
                 if (ignoreKfs.find(kf) != ignoreKfs.end())
                     continue;
@@ -161,13 +159,16 @@ void KeyFrameDB::groupFilter(VirtualFramePtr pFrame, KfAndWordDB &kfAndWordNum,
 void KeyFrameDB::minScoreFilter(VirtualFramePtr pFrame, KfAndWordDB &kfAndWordNum) {
     auto vConnected = pFrame->getConnectedKfs(15);
     double minScore = 1;
-    for (auto &kf : vConnected) {
-        if (!kf || kf->isBad())
-            continue;
-        double score = pFrame->computeSimilarity(*kf);
-        if (score < minScore)
-            minScore = score;
-    }
+    if (vConnected.empty())
+        minScore = 0;
+    else
+        for (auto &kf : vConnected) {
+            if (!kf || kf->isBad())
+                continue;
+            double score = pFrame->computeSimilarity(*kf);
+            if (score < minScore)
+                minScore = score;
+        }
     for (auto iter = kfAndWordNum.begin(); iter != kfAndWordNum.end();) {
         double score = pFrame->computeSimilarity(*iter->first);
         if (score < minScore)
@@ -192,17 +193,20 @@ void KeyFrameDB::findLoopCloseKfs(KeyFramePtr pFrame, std::vector<KeyFramePtr> &
     pFrame->computeBow();
     KfAndWordDB kfAndWordNum;
 
-    auto vConnectedKfs = pFrame->VirtualFrame::getConnectedKfs(0);
+    auto vConnectedKfs = pFrame->getAllConnected();
     std::set<KeyFrame::SharedPtr> sConnectedKfs;
-    for (auto &kf : vConnectedKfs)
-        sConnectedKfs.insert(kf);
+    for (auto &item : vConnectedKfs) {
+        KeyFrame::SharedPtr pKf = item.first.lock();
+        if (pKf && !pKf->isBad())
+            sConnectedKfs.insert(pKf);
+    }
 
     /// 统计关键帧和相同单词数目
     getKfAndWordDB(pFrame, kfAndWordNum, sConnectedKfs);
 
     /// 最小相同单词过滤器KeyFrameDB
     minWordFilter(kfAndWordNum);
-
+    
     /// 共视关键帧过滤器
     minScoreFilter(pFrame, kfAndWordNum);
 

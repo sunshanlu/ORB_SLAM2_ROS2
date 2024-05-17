@@ -29,6 +29,9 @@ public:
     /// 获取关键帧ID
     std::size_t getID() const { return mnId; }
 
+    /// 获取frameid
+    std::size_t getFrameID() const { return VirtualFrame::mnID; }
+
     /// 关键帧设置地图
     void setMap(MapWeakPtr pMap) {
         mbIsInMap = true;
@@ -84,7 +87,16 @@ public:
     }
 
     /// 获取关键帧是否不能被删除
-    bool isNotErased() const { return mbNotErase; }
+    bool isNotErased() const {
+        std::unique_lock<std::mutex> lock(mMutexErase);
+        return mbNotErase;
+    }
+
+    /// 设置关键帧是否能被删除
+    void setNotErased(bool flag) {
+        std::unique_lock<std::mutex> lock(mMutexErase);
+        mbNotErase = flag;
+    }
 
     /// 获取相连关键帧（输入的是权重阈值）
     std::vector<SharedPtr> getConnectedKfs(int th) override;
@@ -121,6 +133,31 @@ public:
     /// 删除指定关键帧的共视关系
     void eraseConnection(SharedPtr pkf);
 
+    /// 添加回环闭合边，用于本质图优化
+    void addLoopEdge(SharedPtr pLoopKf) { mvpLoopEdges.push_back(pLoopKf); }
+
+    /// 获取回环闭合边
+    std::vector<SharedPtr> getLoopEdges() {
+        std::vector<SharedPtr> vpLoopEdges;
+        for (auto &pkfWeak : mvpLoopEdges) {
+            auto pkf = pkfWeak.lock();
+            if (pkf && !pkf->isBad())
+                vpLoopEdges.push_back(pkf);
+        }
+        return vpLoopEdges;
+    }
+
+    /// 获取关键帧的最大id
+    static const std::size_t getMaxID() { return mnNextId - 1; }
+
+    /// 获取共视权重信息
+    int getWeight(KeyFramePtr pkf) {
+        auto iter = mmConnectedKfs.find(pkf);
+        if (iter == mmConnectedKfs.end())
+            return 0;
+        return iter->second;
+    }
+
 private:
     /// 更新连接信息
     SharedPtr updateConnections();
@@ -152,8 +189,10 @@ private:
     mutable std::mutex mBadMutex;                   ///< mbIsBad的互斥锁
     mutable std::mutex mConnectedMutex;             ///< 维护共视关系的互斥锁
     mutable std::mutex mTreeMutex;                  ///< 维护生成树关系的互斥锁
+    mutable std::mutex mMutexErase;                 ///< 维护是否能被删除的互斥锁
     bool mbIsLocalKf = false;                       ///< 是否在跟踪线程维护的局部地图中
     bool mbNotErase = false;                        ///< 当参与回环闭合时，不能删除
+    std::vector<WeakPtr> mvpLoopEdges;              ///< 关键帧的回环闭合边
 
 public:
     static WeakCompareFunc weakCompare; ///< 关键帧弱指针比较函数

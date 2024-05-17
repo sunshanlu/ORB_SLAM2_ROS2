@@ -58,15 +58,14 @@ int main() {
             ++nMatches;
         }
     }
-    cv::Mat Rcw, tcw;
+    PnPRet modelRet;
     bool bNoMore;
     std::vector<std::size_t> inlierIndices;
     auto solver = PnPSolver::create(vMapPoints, vORBPoints);
-    solver->setRansacParams();
-    bool ret = solver->iterate(25, Rcw, tcw, bNoMore, inlierIndices);
+    bool ret = solver->iterate(500, modelRet, bNoMore, inlierIndices);
     std::cout << "使用自定义的EPnP算法计算的相机位姿" << std::endl;
-    std::cout << Rcw << std::endl;
-    std::cout << tcw << std::endl;
+    std::cout << modelRet.mRcw << std::endl;
+    std::cout << modelRet.mtcw << std::endl;
 
     cv::Mat R, t;
     cv::Mat cameraMatrix =

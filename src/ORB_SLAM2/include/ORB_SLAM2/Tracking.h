@@ -116,6 +116,18 @@ public:
         cv::destroyWindow("kps display");
     }
 
+    /// 获取回环帧id
+    int getLoopID() {
+        std::unique_lock<std::mutex> lock(mMutexLoop);
+        return mnLoopID;
+    }
+
+    /// 设置回环帧id
+    void setLoopID(const int &id) {
+        std::unique_lock<std::mutex> lock(mMutexLoop);
+        mnLoopID = id;
+    }
+
 private:
     /// 使用关键帧数据库，寻找初步关键帧
     bool findInitialKF(std::vector<KeyFrame::SharedPtr> &vpCandidateKFs, int &candidateNum);
@@ -159,6 +171,8 @@ private:
     mutable std::mutex mMutexLMps;                ///< 维护mvpLocalMps的互斥锁
     bool mbUpdate = false;                        ///< 跟踪线程的局部地图是否产生更新
     mutable std::mutex mMutexUpdate;              ///< 维护mvpLocalMps是否更新的互斥锁
+    mutable std::mutex mMutexLoop;                ///< mnLoopID的互斥锁
     cv::Mat mleftImg;                             ///< 当前帧的左图
+    int mnLoopID = 0;                             ///< 产生回环的帧id
 };
 } // namespace ORB_SLAM2_ROS2

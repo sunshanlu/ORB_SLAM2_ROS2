@@ -52,13 +52,16 @@ KeyFrame::SharedPtr KeyFrame::updateConnections() {
         mmConnectedKfs.clear();
     }
     std::map<KeyFrame::SharedPtr, std::size_t> mapConnected;
-    for (auto &pMp : mvpMapPoints) {
+    auto vpMapPoints = getMapPoints();
+    for (auto &pMp : vpMapPoints) {
         if (!pMp || pMp->isBad())
             continue;
         MapPoint::Observations obs = pMp->getObservation();
         for (auto &obsItem : obs) {
             auto pkf = obsItem.first.lock();
             if (!pkf || this == pkf.get() || pkf->isBad())
+                continue;
+            if (pkf->getID() > mnId)
                 continue;
             ++mapConnected[pkf];
         }
@@ -81,7 +84,7 @@ KeyFrame::SharedPtr KeyFrame::updateConnections() {
             weightKfs.insert(std::make_pair(item.second, item.first));
             mmConnectedKfs.insert(std::make_pair(item.first, item.second));
         }
-        if (weightKfs.size() == 0) {
+        if (weightKfs.empty() && pBestPkf && !pBestPkf->isBad()) {
             weightKfs.insert(std::make_pair(maxWeight, pBestPkf));
             mmConnectedKfs.insert(std::make_pair(pBestPkf, maxWeight));
         }
@@ -98,18 +101,20 @@ KeyFrame::SharedPtr KeyFrame::updateConnections() {
  * @brief 更新连接关系（更新父子关系）
  * @details
  *      1. 在局部建图线程中，更新的父关键帧的id一定在前（生成树一定不会闭环）
- *      2. 在回环闭合线程中，更新的父关键帧的id可能在后（生成树可能会闭环）
+ *      2. 生成树不会闭环，保证父关键帧的id一定是小于子关键帧id的
  * @param child 输入的待更新连接权重的关键帧
  */
 void KeyFrame::updateConnections(SharedPtr child) {
+    // std::cout << "进入更新连接函数" << std::endl;
     SharedPtr parent = child->updateConnections();
+    // std::cout << "更新连接部分成功" << std::endl;
+    if (!parent || parent->getID() > child->getID())
+        return;
     if (child->isParent()) {
         SharedPtr originParent = child->getParent().lock();
         if (originParent && !originParent->isBad())
             originParent->eraseChild(child);
     }
-    if (!parent)
-        return;
     parent->addChild(child);
     child->setParent(parent);
 }
@@ -136,11 +141,15 @@ std::vector<KeyFrame::SharedPtr> KeyFrame::getOrderedConnectedKfs(int nNum) {
         return connectedKfs;
     }
     auto iter = lpConnectedKfs.begin();
-    for (int i = 0; i < nNum; ++i) {
+    int n = 0;
+    for (auto &pkfWeak : lpConnectedKfs) {
         SharedPtr pkf = iter->lock();
-        if (pkf && !pkf->isBad())
+        if (pkf && pkf->isBad()) {
             connectedKfs.push_back(pkf);
-        ++iter;
+            ++n;
+        }
+        if (n >= nNum)
+            break;
     }
     return connectedKfs;
 }

@@ -65,6 +65,28 @@ void QuadtreeNode::split(QuadtreeNode::SharedPtr pParent) {
 }
 
 /**
+ * @brief 初始节点的初始分裂，这是为了防止分裂的长宽畸形问题
+ * @details
+ *      1. 判断宽高比，这个比值用于初始节点数目
+ *      2. 根据这个节点比例，进行初始节点的初始化
+ * @param pParent
+ */
+void QuadtreeNode::initSplit(SharedPtr pParent) {
+    const double &w = mfColEnd;
+    const double &h = mfRowEnd;
+    const int nIni = round(w / h);
+    const float hX = (double)w / nIni;
+    std::vector<double> cols = {mfColBegin};
+    for (std::size_t idx = 1; idx < nIni; ++idx)
+        cols.push_back(idx * hX);
+    cols.push_back(mfColEnd);
+    for (int i = 0; i < nIni; ++i) {
+        auto node = std::make_shared<QuadtreeNode>(pParent, mfRowBegin, mfRowEnd, cols[i], cols[i + 1]);
+        mvpChildren.push_back(node);
+    }
+}
+
+/**
  * @brief 获取节点中最大响应的特征点的索引
  *
  * @return std::size_t 最大响应特征点的索引
@@ -108,13 +130,16 @@ Quadtree::Quadtree(int x, int y, const std::vector<cv::KeyPoint> &keypoints, uns
  */
 void Quadtree::split() {
     std::multimap<std::size_t, QuadtreeNode::SharedPtr, std::greater<std::size_t>> toSplitNodes;
+    mpRoot->initSplit(mpRoot);
     toSplitNodes.insert(std::make_pair(mpRoot->mvKeyPoints.size(), mpRoot));
     mnNodes = 1;
     // 值得注意的是，toSplitNodes这种情况不可能出现
     while (mnNodes < mnNeedNodes && !toSplitNodes.empty()) {
         auto toSplitNodeIter = toSplitNodes.begin();
         auto toSplitNode = toSplitNodeIter->second;
-        toSplitNode->split(toSplitNode);
+        if (toSplitNode != mpRoot) {
+            toSplitNode->split(toSplitNode);
+        }
         toSplitNodes.erase(toSplitNodeIter);
         mnNodes -= 1;
         for (auto &childShared : toSplitNode->mvpChildren) {
@@ -126,11 +151,6 @@ void Quadtree::split() {
             mnNodes += 1;
         }
     }
-    // if (mnNodes < mnNeedNodes) {
-    //     std::cout << mnNodes << std::endl;
-    //     std::cout << mnNeedNodes << std::endl;
-    //     throw FeatureLessError("节点数目少于期待特征点数目，分裂失败");
-    // }
     nodes2kpoints(toSplitNodes);
 }
 
@@ -169,7 +189,6 @@ ORBExtractor::ORBExtractor(const cv::Mat &image, int nFeatures, int pyramidLevel
     , mnMinThresh(std::move(minThreshold)) {
     initPyramid(image, pyramidLevels, scaleFactor);
     initBriefTemplate(bfTemFp);
-    initGrids(pyramidLevels);
     initMaxU();
 }
 
@@ -228,89 +247,42 @@ void ORBExtractor::initBriefTemplate(const std::string &tempFp) {
  * @param scaleFactor   输入的金字塔的缩放因子
  */
 void ORBExtractor::initPyramid(const cv::Mat &image, int nLevels, float scaleFactor) {
-    mvPyramids.clear();
-    mvBriefMat.clear();
-    mvPyramids.resize(nLevels, cv::Mat());
-    mvBriefMat.resize(nLevels, cv::Mat());
+    mvPyramids.resize(nLevels);
+    mvBriefMat.resize(nLevels);
 
     if (!mbScaleInit) {
-        mvnFeatures.clear();
         mvnFeatures.resize(nLevels, 0);
-        for (int level = 0; level < nLevels; ++level) {
+        for (int level = 0; level < nLevels; ++level)
             mvfScaledFactors.push_back(std::pow(scaleFactor, level));
-        }
+
+        float scale = 1.0f / scaleFactor;
         int sumFeatures = 0;
-        int nfeats = cvRound(mnFeats * (1 - scaleFactor) / (1 - std::pow(scaleFactor, nLevels)));
-        for (int i = nLevels - 1; i > 0; --i) {
-            mvnFeatures[i] = nfeats;
+        int nfeats = cvRound(mnFeats * (1 - scale) / (1 - std::pow(scale, nLevels)));
+        for (int level = 0; level < nLevels - 1; ++level) {
+            mvnFeatures[level] = nfeats;
             sumFeatures += nfeats;
-            nfeats = cvRound(nfeats * scaleFactor);
+            nfeats = cvRound(nfeats * scale);
         }
-        mvnFeatures[0] = mnFeats - sumFeatures;
+        mvnFeatures[nLevels - 1] = std::max(0, mnFeats - sumFeatures);
         mbScaleInit = true;
         mnLevels = nLevels;
         mfScaledFactor = scaleFactor;
     }
-    // 这里首先都是拿原图做了缩放，然后添加了19的边框
+
     image.copyTo(mvPyramids[0]);
     int width = image.cols, height = image.rows;
     for (int i = 1; i < nLevels; ++i) {
-        int widthNoBorder = cvRound(width / mvfScaledFactors[i]);
-        int heightNoBorder = cvRound(height / mvfScaledFactors[i]);
-        if (widthNoBorder < 10 || heightNoBorder < 10) {
-            throw ImageSizeError("金字塔缩放的图像尺寸小于10像素，金字塔缩放参数需要调整");
+        int levelWidth = cvRound(width / mvfScaledFactors[i]);
+        int levelHeight = cvRound(height / mvfScaledFactors[i]);
+        if (levelWidth < 2 * mnBorderSize || levelHeight < 2 * mnBorderSize) {
+            throw ImageSizeError("金字塔缩放的图像尺寸有问题！");
             return;
         }
-        cv::Size sz(widthNoBorder, heightNoBorder);
-        cv::resize(image, mvPyramids[i], sz);
+        cv::Size sz(levelWidth, levelHeight);
+        cv::resize(image, mvPyramids[i], sz, 0, 0, cv::INTER_LINEAR);
     }
-    for (int i = 0; i < nLevels; ++i) {
+    for (int i = 0; i < nLevels; ++i)
         cv::GaussianBlur(mvPyramids[i], mvBriefMat[i], cv::Size(7, 7), 2, 2, cv::BORDER_REFLECT_101);
-        cv::copyMakeBorder(mvPyramids[i], mvPyramids[i], mnBorderSize, mnBorderSize, mnBorderSize, mnBorderSize,
-                           cv::BORDER_REFLECT_101);
-        cv::copyMakeBorder(mvBriefMat[i], mvBriefMat[i], mnBorderSize, mnBorderSize, mnBorderSize, mnBorderSize,
-                           cv::BORDER_REFLECT_101);
-    }
-}
-
-/**
- * @brief 初始化FAST角点检测网格的范围（考虑了FAST角点检测的半径3）
- *
- * @param nLevels       输入的金字塔层级
- */
-void ORBExtractor::initGrids(int nLevels) {
-    if (mbIdxInit) {
-        return;
-    }
-    mvRowIdxs.clear();
-    mvColIdxs.clear();
-    mvRowIdxs.resize(nLevels, std::vector<unsigned>());
-    mvColIdxs.resize(nLevels, std::vector<unsigned>());
-    for (int level = 0; level < nLevels; ++level) {
-        cv::Mat image = mvPyramids[level];
-        auto &mvRowIdx = mvRowIdxs[level];
-        auto &mvColIdx = mvColIdxs[level];
-        mvRowIdx.push_back(mnBorderSize);
-        mvColIdx.push_back(mnBorderSize);
-        unsigned row = mnBorderSize, col = mnBorderSize;
-        while (1) {
-            row += 30;
-            if (row >= image.rows - mnBorderSize) {
-                mvRowIdx.push_back(image.rows - mnBorderSize);
-                break;
-            }
-            mvRowIdx.push_back(row);
-        }
-        while (1) {
-            col += 30;
-            if (col >= image.cols - mnBorderSize) {
-                mvColIdx.push_back(image.cols - mnBorderSize);
-                break;
-            }
-            mvColIdx.push_back(col);
-        }
-    }
-    mbIdxInit = true;
 }
 
 /**
@@ -323,62 +295,55 @@ void ORBExtractor::initGrids(int nLevels) {
  * @param keyPoints 输出的提取到的FAST角点vector
  */
 void ORBExtractor::extractFast(int nlevel, std::vector<cv::KeyPoint> &keyPoints) {
-    keyPoints.clear();
-    std::vector<std::vector<cv::Mat>> pitches;
-    const auto &image = mvPyramids[nlevel];
-    getPitches(image, pitches, nlevel);
-    const auto &mvRowIdx = mvRowIdxs[nlevel];
-    const auto &mvColIdx = mvColIdxs[nlevel];
-    const int rows = mvRowIdx.size() - 1, cols = mvColIdx.size() - 1;
-    for (std::size_t idx = 0; idx < rows; ++idx) {
-        for (std::size_t jdx = 0; jdx < cols; ++jdx) {
-            const auto &pitch = pitches[idx][jdx];
-            unsigned rowStart = mvRowIdx[idx];
-            unsigned colStart = mvColIdx[jdx];
-            std::vector<cv::KeyPoint> pitchKps;
-            auto maxDetector = cv::FastFeatureDetector::create(mnMaxThresh, true, cv::FastFeatureDetector::TYPE_9_16);
-            auto minDetector = cv::FastFeatureDetector::create(mnMinThresh, true, cv::FastFeatureDetector::TYPE_9_16);
-            maxDetector->detect(pitch, pitchKps);
-            if (pitchKps.empty())
-                minDetector->detect(pitch, pitchKps);
-            for (auto &kp : pitchKps) {
-                kp.pt.x += colStart;
-                kp.pt.y += rowStart;
-                kp.pt.x -= mnBorderSize;
-                kp.pt.y -= mnBorderSize;
-                kp.octave = nlevel;
-                kp.pt.x *= mvfScaledFactors[nlevel];
-                kp.pt.y *= mvfScaledFactors[nlevel];
-                keyPoints.push_back(kp);
-            }
-        }
-    }
-    /// 如果关键点数目小于相应的金字塔层级要求数目，减少需要提取的关键点数目
-    if (keyPoints.size() < mvnFeatures[nlevel]) {
-        mvnFeatures[nlevel] = keyPoints.size();
-        int diffNum = keyPoints.size() - mvnFeatures[nlevel];
-        mnFeats -= diffNum;
-    }
-}
+    cv::Mat image = mvPyramids[nlevel];
+    int nMaxBorderX = image.cols - mnBorderSize + 3;
+    int nMaxBorderY = image.rows - mnBorderSize + 3;
+    int nMinBorderX = mnBorderSize - 3;
+    int nMinBorderY = mnBorderSize - 3;
+    int w = nMaxBorderX - nMinBorderX;
+    int h = nMaxBorderY - nMinBorderY;
+    const int nCols = w / 30;
+    const int nRows = h / 30;
+    const int wCell = ceil(w / nCols);
+    const int hCell = ceil(h / nRows);
 
-/**
- * @brief 对给定图片进行网格划分，划分为30*30大小的网格
- *
- * @param image     输入的待划分网格的图像
- * @param pitches   输入的划分后的网格vector，以行方向的网格元素
- * @param nlevel    输入的金字塔层级
- */
-void ORBExtractor::getPitches(const cv::Mat &image, std::vector<std::vector<cv::Mat>> &pitches, int nlevel) {
-    pitches.clear();
-    const auto &mvRowIdx = mvRowIdxs[nlevel];
-    const auto &mvColIdx = mvColIdxs[nlevel];
-    for (std::size_t ridx = 0; ridx < mvRowIdx.size() - 1; ++ridx) {
-        std::vector<cv::Mat> rowPitches;
-        for (std::size_t cidx = 0; cidx < mvColIdx.size() - 1; ++cidx) {
-            rowPitches.push_back(
-                image.rowRange(mvRowIdx[ridx], mvRowIdx[ridx + 1]).colRange(mvColIdx[cidx], mvColIdx[cidx + 1]));
+    std::vector<cv::KeyPoint> levelKps;
+    for (std::size_t idx = 0; idx < nRows; ++idx) {
+        int iniY = nMinBorderY + idx * hCell;
+        int maxY = iniY + hCell + 6;
+        if (iniY >= nMaxBorderY - 6)
+            continue;
+        if (maxY > nMaxBorderY)
+            maxY = nMaxBorderY;
+
+        for (std::size_t jdx = 0; jdx < nCols; ++jdx) {
+            int iniX = nMinBorderX + jdx * wCell;
+            int maxX = iniX + wCell + 6;
+            if (iniX >= nMaxBorderX - 6)
+                continue;
+            if (maxX > nMaxBorderX)
+                maxX = nMaxBorderX;
+            cv::Mat pitch = image.rowRange(iniY, maxY).colRange(iniX, maxX);
+            std::vector<cv::KeyPoint> pitchKps;
+            cv::FAST(pitch, pitchKps, mnMaxThresh, true);
+            if (pitchKps.empty())
+                cv::FAST(pitch, pitchKps, mnMinThresh, true);
+            for (auto &kp : pitchKps) {
+                kp.pt.x += jdx * wCell;
+                kp.pt.y += idx * hCell;
+            }
+            std::copy(pitchKps.begin(), pitchKps.end(), std::back_inserter(levelKps));
         }
-        pitches.push_back(rowPitches);
+    }
+    Quadtree quadTree(w, h, levelKps, mvnFeatures[nlevel]);
+    quadTree.split();
+    auto idxs = quadTree.getFeatIdxs();
+    for (const auto &id : idxs) {
+        auto &kp = levelKps[id];
+        kp.pt.x += nMinBorderX;
+        kp.pt.y += nMinBorderY;
+        kp.octave = nlevel;
+        keyPoints.push_back(kp);
     }
 }
 
@@ -396,10 +361,11 @@ std::vector<cv::Mat> ORBExtractor::computeBRIEF(std::vector<cv::KeyPoint> &keyPo
         cv::Mat descriptorCV(1, 32, CV_8U);
         auto &keypoint = keyPoints[idx];
         auto &sacledFactor = mvfScaledFactors[keypoint.octave];
-        cv::Point2f point(keypoint.pt.x / sacledFactor + mnBorderSize, keypoint.pt.y / sacledFactor + mnBorderSize);
         std::vector<uchar> descriptor;
-        double angle = computeBRIEF(keypoint.octave, point, descriptor);
+        double angle = computeBRIEF(keypoint.octave, keypoint.pt, descriptor);
         keypoint.angle = angle / M_PI * 180;
+        keypoint.pt.x *= sacledFactor;
+        keypoint.pt.y *= sacledFactor;
         for (int i = 0; i < 32; ++i)
             descriptorCV.at<uchar>(0, i) = descriptor[i];
         descriptors.push_back(descriptorCV);
@@ -484,18 +450,11 @@ double ORBExtractor::getGrayCentroid(const cv::Mat &image, const cv::Point2f &po
  * @param descriptors   输出的描述子（cv::Mat）
  */
 void ORBExtractor::extract(std::vector<cv::KeyPoint> &keyPoints, std::vector<cv::Mat> &descriptors) {
-    std::vector<cv::KeyPoint> fastKps;
     for (int level = 0; level < mnLevels; ++level) {
         std::vector<cv::KeyPoint> levelKps;
         extractFast(level, levelKps);
-        std::copy(levelKps.begin(), levelKps.end(), std::back_inserter(fastKps));
+        std::copy(levelKps.begin(), levelKps.end(), std::back_inserter(keyPoints));
     }
-    const auto &image = mvPyramids[0];
-    Quadtree quadtree(image.cols - 2 * mnBorderSize, image.rows - 2 * mnBorderSize, fastKps, mnFeats);
-    quadtree.split();
-    auto ids = quadtree.getFeatIdxs();
-    for (const auto &id : ids)
-        keyPoints.push_back(fastKps[id]);
     descriptors = computeBRIEF(keyPoints);
 }
 

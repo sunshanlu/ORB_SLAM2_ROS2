@@ -28,6 +28,9 @@ struct QuadtreeNode {
     /// 四叉树分裂函数
     void split(SharedPtr pParent);
 
+    /// 初始节点的初始分裂
+    void initSplit(SharedPtr pParent);
+
     /// 获取最大响应的特征点
     std::size_t getFeature();
 
@@ -120,17 +123,11 @@ private:
     /// 灰度质心法
     double getGrayCentroid(const cv::Mat &image, const cv::Point2f &point);
 
-    /// 划分网格
-    void getPitches(const cv::Mat &image, std::vector<std::vector<cv::Mat>> &pitches, int nlevel);
-
     /// 初始化图像金字塔
     void initPyramid(const cv::Mat &image, int nLevels, float scaleFactor);
 
     /// 初始化BRIEF模板
     void initBriefTemplate(const std::string &tempFp);
-
-    /// 初始化网格（对FAST角点检测的30*30的网格进行初始化）
-    void initGrids(int nLevels);
 
     /// 初始化maxu
     void initMaxU();

@@ -10,6 +10,7 @@ class KeyFrame;
 class MapPoint;
 class VirtualFrame;
 class Map;
+class Sim3Ret;
 
 class ORBMatcher {
 public:
@@ -35,7 +36,7 @@ public:
 
     /// 给2d匹配寻找最佳的地图点，利用词袋加速匹配（跟踪参考关键帧，注意保留已经匹配成功的地图点）
     int searchByBow(VirtualFramePtr pFrame, VirtualFramePtr pKframe, std::vector<cv::DMatch> &matches,
-                    bool bAddMPs = false);
+                    bool bAddMPs = false, bool bLoop = false);
 
     /// 给地图点寻找最佳的2d匹配
     // int searchByBowInv(VirtualFramePtr pFrame, VirtualFramePtr pKframe, std::vector<cv::DMatch> &matches,
@@ -49,11 +50,20 @@ public:
     int searchByProjection(VirtualFramePtr pframe, const std::vector<MapPointPtr> &mapPoints, float th,
                            std::vector<cv::DMatch> &matches, bool bFuse = false);
 
+    /// 回环闭合线程中的Sim3匹配
+    int searchBySim3(KeyFramePtr mpCurr, KeyFramePtr mpMatch, std::vector<cv::DMatch> &matches, Sim3Ret &g2oScm,
+                     float th);
+
+    /// 回环闭合线程中的Sim3重投影匹配
+    int searchBySim3(KeyFramePtr pCurr, const std::vector<MapPointPtr> &vLoopGroupMps,
+                     std::vector<MapPointPtr> &vMatchedMps, Sim3Ret &g2oScw, float th);
+
     /// 局部建图线程中的三角化之前的匹配
     int searchForTriangulation(KeyFramePtr pkf1, KeyFramePtr pkf2, std::vector<cv::DMatch> &matches);
 
     /// 正向投影融合
-    int fuse(KeyFramePtr pkf1, const std::vector<MapPointPtr> &mapPoints, MapPtr map);
+    int fuse(KeyFramePtr pkf1, const std::vector<MapPointPtr> &mapPoints, MapPtr map, bool bLoop = false,
+             float th = 3.0);
 
     /// 反向投影融合
     int fuse(KeyFramePtr pkf1, KeyFramePtr pkf2, MapPtr map);
@@ -97,8 +107,13 @@ private:
                             const std::vector<cv::KeyPoint> &keyPoints2);
 
     /// 进行地图点的融合替换
-    void processFuseMps(const std::vector<cv::DMatch> &matches, std::vector<MapPointPtr> &fMapPoints,
-                        std::vector<MapPointPtr> &vMapPoints, KeyFramePtr &pkf1, MapPtr &map);
+    int processFuseMps(const std::vector<cv::DMatch> &matches, std::vector<MapPointPtr> &fMapPoints,
+                        std::vector<MapPointPtr> &vMapPoints, KeyFramePtr &pkf1, MapPtr &map, bool bLoop = false);
+
+    /// 基于SIM3相似性变换矩阵的投影
+    bool SIM3Project(MapPointPtr pMpC, const cv::Mat &Rcw, const cv::Mat &tcw, const Sim3Ret &g2oSmc,
+                     KeyFramePtr mpCurr, KeyFramePtr mpMatch, const float &th, const std::vector<MapPointPtr> &pM,
+                     const cv::Mat &desc, const std::vector<cv::Mat> &descM, std::size_t &candidateID);
 
 public:
     static int mnMaxThreshold;  ///< BRIEF最大距离阈值

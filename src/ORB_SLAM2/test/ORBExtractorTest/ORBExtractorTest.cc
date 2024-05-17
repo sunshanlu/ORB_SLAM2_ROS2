@@ -17,10 +17,10 @@ int main(int argc, char **argv) {
     cv::Mat image = cv::imread(imageFp, cv::IMREAD_GRAYSCALE);
     std::cout << std::endl;
 
-    ORBExtractor extractor(image, 20, 1, 1.2, briefFp, 20, 8);
+    ORBExtractor extractor(image, 500, 1, 1.2, briefFp, 20, 8);
     extractor.extract(keypoints, descs);
 
-    ORBextractor extractorO(20, 1.2, 1, 20, 8);
+    ORBextractor extractorO(2000, 1.2, 1, 20, 8);
     extractorO(image, cv::noArray(), keypointsO, descsO);
 
     cv::Mat image_self, image_o;
@@ -31,20 +31,23 @@ int main(int argc, char **argv) {
     cv::imshow("origin", image_o);
     cv::waitKey(0);
     cv::destroyAllWindows();
+
+    int n = 0;
     for (std::size_t idx = 0; idx < keypoints.size(); ++idx) {
         const auto &kp = keypoints[idx];
         for (std::size_t jdx = 0; jdx < keypointsO.size(); ++jdx) {
             const auto &kpO = keypointsO[jdx];
             float dx = (kp.pt.x - kpO.pt.x);
             float dy = (kp.pt.y - kpO.pt.y);
-            if (dx * dx + dy * dy == 0) {
-                std::cout << "self:   " << descs[idx] << std::endl;
-                std::cout << "origin: " << descsO.row(jdx) << std::endl;
+            if (dx * dx + dy * dy == 0 && kp.octave == kpO.octave) {
+                // std::cout << "self:   " << descs[idx] << kp.octave << std::endl;
+                // std::cout << "origin: " << descsO.row(jdx) << kpO.octave << std::endl;
                 // std::cout << kp.pt.x << "\t" << kp.pt.y << std::endl;
-                // int dis = ORBMatcher::descDistance(descs[idx], descsO.row(jdx));
+                int dis = ORBMatcher::descDistance(descs[idx], descsO.row(jdx));
                 // std::cout << "self:   " << kp.angle << std::endl;
                 // std::cout << "origin: " << kpO.angle << std::endl;
-                // std::cout << dis << std::endl;
+                std::cout << dis << std::endl;
+                ++n;
             }
         }
     }

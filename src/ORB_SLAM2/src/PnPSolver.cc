@@ -25,6 +25,7 @@ PnPSolver::PnPSolver(std::vector<cv::Mat> &vMapPoints, std::vector<cv::KeyPoint>
         mvAllIndices.push_back(idx);
     }
     mnN = n;
+    setRansacParams();
 }
 
 /**
@@ -38,7 +39,7 @@ PnPSolver::PnPSolver(std::vector<cv::Mat> &vMapPoints, std::vector<cv::KeyPoint>
  *      6. 根据四个控制点的坐标，使用ICP方法求解相机位姿
  * @param vIndices
  */
-void PnPSolver::EPnP(std::vector<std::size_t> vIndices, cv::Mat &Rcw, cv::Mat &tcw) {
+void PnPSolver::modelFunc(const std::vector<std::size_t> &vIndices, PnPRet &modelRet) {
     if (vIndices.size() < 4)
         throw EPnPError("进行EPnP时，传入的索引数目不合法！");
     std::vector<cv::Point3f> vMapPoints;
@@ -65,7 +66,7 @@ void PnPSolver::EPnP(std::vector<std::size_t> vIndices, cv::Mat &Rcw, cv::Mat &t
         for (int jdx = 0; jdx < 4; ++jdx)
             ctlPointsC[jdx] += betaVal * eigenVec[jdx];
     }
-    ICP(ctlPointsW, ctlPointsC, Rcw, tcw);
+    ICP(ctlPointsW, ctlPointsC, modelRet.mRcw, modelRet.mtcw);
 }
 
 /**
@@ -407,46 +408,6 @@ float PnPSolver::computeDet3(const cv::Mat &mat) {
 }
 
 /**
- * @brief 设置RANSAC算法的参数
- * @details
- *      1. 首先固定采样次数
- *      2. 固定（假定）样本中的最少内点数
- *      3. 固定样本中内点比例
- *      4. 根据内点比例和输入的迭代次数进行RANSAC迭代次数计算
- * @param nMaxIterations    输入的最大迭代次数
- * @param fRatio            输入的期望内点比例
- * @param nMinSet           输入的样本采样个数
- * @param fProb             输入的至少一次采样全是内点的概率
- */
-void PnPSolver::setRansacParams(int nMaxIterations, float fRatio, int nMinSet, float fProb) {
-    mnMinSet = nMinSet;
-    mnMinInlier = std::max((float)nMinSet, mnN * fRatio);
-    mfMinInlierRatio = (float)mnMinInlier / mnN;
-    int nIters = cvRound(std::log(1 - fProb) / std::log(1 - std::pow(mfMinInlierRatio, mnMinSet)));
-    mnMaxIterations = std::min(nMaxIterations, nIters);
-}
-
-/**
- * @brief 随机采样s次（mnMinSet）
- *
- * @return std::vector<std::size_t> 返回采样的索引
- */
-std::vector<std::size_t> PnPSolver::randomSample() {
-    static std::default_random_engine generator;
-    std::uniform_int_distribution<std::size_t> distribution(0, mnN - 1);
-    std::vector<size_t> vChoseIndices;
-    int nNum = 0;
-    while (nNum != mnMinSet) {
-        std::size_t rdVal = distribution(generator);
-        if (std::find(vChoseIndices.begin(), vChoseIndices.end(), rdVal) == vChoseIndices.end()) {
-            vChoseIndices.push_back(rdVal);
-            nNum++;
-        }
-    }
-    return vChoseIndices;
-}
-
-/**
  * @brief 判断样本中内点和外点的数目
  *
  * @param vbInlierFlags 输出的样本中内点标记
@@ -454,14 +415,14 @@ std::vector<std::size_t> PnPSolver::randomSample() {
  * @param tcw           输入的tcw（某一次RANSAC计算的平移向量）
  * @return int 返回样本中内点的个数
  */
-int PnPSolver::checkInliers(std::vector<std::size_t> &vnInlierIndices, const cv::Mat &Rcw, const cv::Mat &tcw) {
+int PnPSolver::checkInliers(std::vector<std::size_t> &vnInlierIndices, const PnPRet &modelRet) {
     int nInliers = 0;
     for (std::size_t idx = 0; idx < mnN; ++idx) {
         const cv::Point2f &point2d = mvORBPoints[idx];
         const cv::Point3f &point3d = mvMapPoints[idx];
         const float &error = mvfErrors[idx];
         cv::Mat p3dW = (cv::Mat_<float>(3, 1) << point3d.x, point3d.y, point3d.z);
-        cv::Mat p3dC = Rcw * p3dW + tcw;
+        cv::Mat p3dC = modelRet.mRcw * p3dW + modelRet.mtcw;
         const float &z = p3dC.at<float>(2, 0);
         float u = p3dC.at<float>(0, 0) / z * Camera::mfFx + Camera::mfCx;
         float v = p3dC.at<float>(1, 0) / z * Camera::mfFy + Camera::mfCy;
@@ -473,66 +434,4 @@ int PnPSolver::checkInliers(std::vector<std::size_t> &vnInlierIndices, const cv:
     }
     return nInliers;
 }
-
-/**
- * @brief 根据内点分布的位置，进行内点回代
- *
- * @param vnInlierIndices   输入输出的内点索引
- * @param Rcw               输出的Rcw（回代得到的旋转矩阵）
- * @param tcw               输出的tcw（回代得到的平移向量）
- * @return int 输出的回代后的内点数目
- */
-int PnPSolver::refine(std::vector<std::size_t> &vnInlierIndices, cv::Mat &Rcw, cv::Mat &tcw) {
-    EPnP(vnInlierIndices, Rcw, tcw);
-    vnInlierIndices.clear();
-    return checkInliers(vnInlierIndices, Rcw, tcw);
-}
-
-/**
- * @brief 进行RANSAC迭代（指定迭代次数）
- *
- * @param nIterations     指定的迭代次数
- * @param Rcw             输出的RANSAC计算的旋转矩阵
- * @param tcw             输出的RANSAC计算的平移向量
- * @param bNoMore         输出的是否没有剩余迭代次数了
- * @param vnInlierIndices 内点分布索引
- * @return true     迭代成功，输出了位姿信息
- * @return false    迭代失败，没有输出位姿信息
- */
-bool PnPSolver::iterate(int nIterations, cv::Mat &Rcw, cv::Mat &tcw, bool &bNoMore,
-                        std::vector<std::size_t> &vnInlierIndices) {
-    int iter = 0;
-    if (mnN < mnMinSet) {
-        bNoMore = true;
-        return false;
-    }
-    while (iter < nIterations && mnCurrentIteration < mnMaxIterations) {
-        auto vnChoseIndices = randomSample();
-        EPnP(vnChoseIndices, Rcw, tcw);
-        if (!Rcw.empty()) {
-            int nInliers = checkInliers(vnInlierIndices, Rcw, tcw);
-            if (nInliers > mnMinInlier) {
-                if (nInliers > mnBestInliers) {
-                    mnBestInliers = nInliers;
-                    Rcw.copyTo(mBestRcw);
-                    tcw.copyTo(mBesttcw);
-                }
-                if (refine(vnInlierIndices, Rcw, tcw) > mnMinInlier)
-                    return true;
-            }
-        }
-        ++iter;
-        ++mnCurrentIteration;
-    }
-    if (mnCurrentIteration >= mnMaxIterations)
-        bNoMore = true;
-    if (mnBestInliers == 0)
-        return false;
-    else {
-        mBestRcw.copyTo(Rcw);
-        mBesttcw.copyTo(tcw);
-        return true;
-    }
-}
-
 } // namespace ORB_SLAM2_ROS2

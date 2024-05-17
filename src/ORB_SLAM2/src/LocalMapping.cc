@@ -4,6 +4,7 @@
 #include "ORB_SLAM2/KeyFrame.h"
 #include "ORB_SLAM2/KeyFrameDB.h"
 #include "ORB_SLAM2/LocalMapping.h"
+#include "ORB_SLAM2/LoopClosing.h"
 #include "ORB_SLAM2/Map.h"
 #include "ORB_SLAM2/MapPoint.h"
 #include "ORB_SLAM2/ORBMatcher.h"
@@ -26,7 +27,7 @@ KeyFrame::SharedPtr LocalMapping::getNewKeyFrame() {
     std::unique_lock<std::mutex> lock(mMutexQueue);
     if (mqpKeyFrames.empty()) {
         lock.unlock();
-        std::this_thread::sleep_for(100ms);
+        std::this_thread::sleep_for(10ms);
         return nullptr;
     } else {
         KeyFrame::SharedPtr pKf = mqpKeyFrames.front();
@@ -42,7 +43,12 @@ KeyFrame::SharedPtr LocalMapping::getNewKeyFrame() {
  */
 void LocalMapping::run() {
     while (1) {
-        runOnce();
+        if (!isStop()) {
+            runOnce();
+            std::this_thread::sleep_for(3ms);
+        } else {
+            std::this_thread::sleep_for(10ms);
+        }
     }
 }
 
@@ -63,25 +69,47 @@ void LocalMapping::runOnce() {
     setAccpetKF(false);
     auto pkf = getNewKeyFrame();
     if (pkf) {
+        // if (pkf->getID() == 0) {
+        //     auto vMps = pkf->getMapPoints();
+        //     for (auto &pMp : vMps) {
+        //         if (pMp && !pMp->isBad())
+        //             mlpAddedMPs.push_back(pMp);
+        //     }
+        // }
         processNewKeyFrame(pkf);
+        // std::cout << "处理完成新关键帧" << std::endl;
         cullingMapPoints();
+        // std::cout << "删除完成地图点" << std::endl;
 
         // std::cout << "最近添加地图点数目：" << mlpAddedMPs.size() << std::endl;
         // std::cout << "关键帧数目：" << mqpKeyFrames.size() << std::endl;
         // std::cout << "未处理地图点数目：" << mmUnprocessMps.size() << std::endl;
 
         createNewMapPoints();
+        // std::cout << "创建新地图点成功" << std::endl;
         if (isCompleted()) {
+            // std::cout << "开始地图点的融合" << std::endl;
             fuseMapPoints();
-            if (mpMap->keyFramesInMap() > 2) {
-                setAbortBA(false);
-                Optimizer::OptimizeLocalMap(mpCurrKeyFrame, mbAbortBA);
-                cullingKeyFrames();
-            }
+            // std::cout << "地图点融合完成" << std::endl;
         }
+        // TODO 为了回环闭合测试
+        if (isCompleted() && !isRequestStop()) {
+            setAbortBA(false);
+            if (mpMap->keyFramesInMap() > 2) {
+                // std::cout << "开始优化局部地图" << std::endl;
+                Optimizer::OptimizeLocalMap(mpCurrKeyFrame, mbAbortBA);
+                // std::cout << "优化局部地图成功" << std::endl;
+            }
+            // std::cout << "开始删除关键帧" << std::endl;
+            cullingKeyFrames();
+            // std::cout << "删除关键帧成功" << std::endl;
+        }
+        if (mpLoopCloser)
+            mpLoopCloser->insertKeyFrame(mpCurrKeyFrame);
+    } else if (!pkf && isCompleted() && isRequestStop()) {
+        setStop(true);
     }
     setAccpetKF(true);
-    std::this_thread::sleep_for(3ms);
 }
 
 /**
@@ -96,6 +124,7 @@ void LocalMapping::runOnce() {
  */
 void LocalMapping::processNewKeyFrame(KeyFramePtr pKf) {
     pKf->computeBow();
+    mmUnprocessMps.clear();
     auto mapPoints = pKf->getMapPoints();
     for (std::size_t idx = 0; idx < mapPoints.size(); ++idx) {
         MapPoint::SharedPtr pMp = mapPoints[idx];
@@ -148,58 +177,61 @@ void LocalMapping::createNewMapPoints() {
         nMatches += matcher.searchForTriangulation(mpCurrKeyFrame, pKf, vMatches);
         matches.insert(std::make_pair(pKf, vMatches));
     }
-    if (nMatches == 0)
-        return;
     const auto &kps1 = mpCurrKeyFrame->getLeftKeyPoints();
-    cv::Mat R1w = mpCurrKeyFrame->getPose().colRange(0, 3).rowRange(0, 3);
+    cv::Mat R1w, t1w;
+    mpCurrKeyFrame->getPose(R1w, t1w);
     const auto &depths1 = mpCurrKeyFrame->getDepth();
     const auto &rightUs1 = mpCurrKeyFrame->getRightU();
-
+    
     /// 处理关键帧之间产生的新地图点
     for (auto match : matches) {
         const auto &kps2 = match.first->getLeftKeyPoints();
         const auto &depths2 = match.first->getDepth();
         const auto &rightUs2 = match.first->getRightU();
+        cv::Mat R2w, _;
+        match.first->getPose(R2w, _);
+
+        
         for (auto &m : match.second) {
+            auto pCurrMp = mpCurrKeyFrame->getMapPoint(m.queryIdx);
+            if (pCurrMp && !pCurrMp->isBad() && pCurrMp->isInMap())
+                continue;
             const auto &kp1 = kps1[m.queryIdx];
             const auto &kp2 = kps2[m.trainIdx];
-            cv::Mat R2w = match.first->getPose().colRange(0, 3).rowRange(0, 3);
             float cosTheta0 = 1, cosTheta1 = 1, cosTheta2 = 1;
             cosTheta0 = computeCosTheta(R1w, R2w, kp1.pt, kp2.pt);
+            bool bStereo1 = false, bStereo2 = false;
             if (depths1[m.queryIdx] > 0) {
+                bStereo1 = true;
                 cv::Point2f pt2(rightUs1[m.queryIdx], kp1.pt.y);
                 cosTheta1 = computeCosTheta(cv::Mat::eye(3, 3, CV_32F), cv::Mat::eye(3, 3, CV_32F), kp1.pt, pt2);
             }
             if (depths2[m.trainIdx] > 0) {
+                bStereo2 = true;
                 cv::Point2f pt2(rightUs2[m.trainIdx], kp2.pt.y);
                 cosTheta2 = computeCosTheta(cv::Mat::eye(3, 3, CV_32F), cv::Mat::eye(3, 3, CV_32F), kp2.pt, pt2);
             }
-            float minTheta = std::min({cosTheta0, cosTheta1, cosTheta2});
-            if (minTheta == 1)
-                continue;
+            float cosThetaStereo = std::min(cosTheta1, cosTheta2);
             MapPoint::SharedPtr pMp;
-            bool bContinue = false;
-            if (minTheta == cosTheta0) {
+            if (cosTheta0 < cosThetaStereo && cosTheta0 > 0 && (bStereo1 || bStereo2 || cosTheta0 < 0.9998)) {
                 cv::Mat p3dW = triangulate(mpCurrKeyFrame, match.first, kp1, kp2);
-                if (!p3dW.empty())
-                    pMp = MapPoint::create(p3dW);
-                else
-                    bContinue = true;
-            }
-            if (bContinue) {
-                if (minTheta == cosTheta1 && cosTheta1 != 1) {
-                    if (mmUnprocessMps.find(m.queryIdx) != mmUnprocessMps.end()) {
-                        pMp = mmUnprocessMps[m.queryIdx];
-                        mmUnprocessMps.erase(m.queryIdx);
-                    }
-                } else if (minTheta == cosTheta2 && cosTheta2 != 1) {
-                    cv::Mat p3dC = match.first->unProject(m.trainIdx);
-                    cv::Mat Rwc, twc;
-                    match.first->getPoseInv(Rwc, twc);
-                    cv::Mat p3dW = Rwc * p3dC + twc;
+                if (!p3dW.empty()) {
+                    // std::cout << p3dW.t() << std::endl;
                     pMp = MapPoint::create(p3dW);
                 }
+            } else if (bStereo1 && cosTheta1 < cosTheta2) {
+                if (mmUnprocessMps.find(m.queryIdx) != mmUnprocessMps.end()) {
+                    pMp = mmUnprocessMps[m.queryIdx];
+                    mmUnprocessMps.erase(m.queryIdx);
+                }
+            } else if (bStereo2 && cosTheta2 < cosTheta1) {
+                cv::Mat p3dC = match.first->unProject(m.trainIdx);
+                cv::Mat Rwc, twc;
+                match.first->getPoseInv(Rwc, twc);
+                cv::Mat p3dW = Rwc * p3dC + twc;
+                pMp = MapPoint::create(p3dW);
             }
+
             if (!pMp)
                 continue;
             auto ret = pMp->checkMapPoint(mpCurrKeyFrame, match.first, m.queryIdx, m.trainIdx);
@@ -218,13 +250,17 @@ void LocalMapping::createNewMapPoints() {
     }
 
     /// 处理自己本身可以产生的地图点
+    auto vMps = mpCurrKeyFrame->getMapPoints();
     for (const auto &item : mmUnprocessMps) {
-        mpCurrKeyFrame->setMapPoint(item.first, item.second);
-        item.second->addAttriInit(mpCurrKeyFrame, item.first);
-        mpMap->insertMapPoint(item.second, mpMap);
-        mlpAddedMPs.push_back(item.second);
+        auto &pMp = vMps[item.first];
+        if (!pMp || pMp->isBad()) {
+            mpCurrKeyFrame->setMapPoint(item.first, item.second);
+            item.second->addAttriInit(mpCurrKeyFrame, item.first);
+            mpMap->insertMapPoint(item.second, mpMap);
+            mlpAddedMPs.push_back(item.second);
+        }
     }
-    mmUnprocessMps.clear();
+    // std::cout << "处理的本身产生的地图点数目为: " << n << std::endl;
 }
 
 /**
@@ -239,8 +275,8 @@ void LocalMapping::createNewMapPoints() {
 float LocalMapping::computeCosTheta(cv::Mat R1w, cv::Mat R2w, const cv::Point2f &pt1, const cv::Point2f &pt2) {
     float x1 = (pt1.x - Camera::mfCx) / Camera::mfFx;
     float y1 = (pt1.y - Camera::mfCy) / Camera::mfFy;
-    float x2 = (pt1.x - Camera::mfCx) / Camera::mfFx;
-    float y2 = (pt1.y - Camera::mfCy) / Camera::mfFy;
+    float x2 = (pt2.x - Camera::mfCx) / Camera::mfFx;
+    float y2 = (pt2.y - Camera::mfCy) / Camera::mfFy;
     cv::Mat pt1W = R1w.t() * (cv::Mat_<float>(3, 1) << x1, y1, 1);
     cv::Mat pt2W = R2w.t() * (cv::Mat_<float>(3, 1) << x2, y2, 1);
     return pt1W.dot(pt2W) / (cv::norm(pt1W) * cv::norm(pt2W));
@@ -278,6 +314,8 @@ cv::Mat LocalMapping::triangulate(KeyFrame::SharedPtr pkf1, KeyFrame::SharedPtr 
     if (w.at<float>(3) / w.at<float>(2) > 1e-3)
         return cv::Mat();
     cv::Mat tmp = vt.row(3) / vt.at<float>(3, 3);
+    if (tmp.at<float>(2) < 0)
+        return cv::Mat();
     ret.at<float>(0) = tmp.at<float>(0);
     ret.at<float>(1) = tmp.at<float>(1);
     ret.at<float>(2) = tmp.at<float>(2);
@@ -300,14 +338,12 @@ void LocalMapping::fuseMapPoints() {
     std::unordered_set<MapPoint::SharedPtr> sTargetMps;
     std::vector<MapPoint::SharedPtr> vTargetMps;
     sTargetKfs.insert(mpCurrKeyFrame);
-    for (auto item : mpCurrKeyFrame->getOrderedConnectedKfs(10)) {
-        if (!item || item->isBad())
-            continue;
+    auto connectedKfs = mpCurrKeyFrame->getOrderedConnectedKfs(10);
+    for (auto item : connectedKfs) {
         int nNum = 0;
-        auto connectedKfs = item->getOrderedConnectedKfs(100);
-        for (auto pkf : connectedKfs) {
-            if (!item || item->isBad())
-                continue;
+        auto connectedKfs2 = item->getOrderedConnectedKfs(100);
+        sTargetKfs.insert(item);
+        for (auto pkf : connectedKfs2) {
             if (sTargetKfs.find(pkf) == sTargetKfs.end()) {
                 sTargetKfs.insert(pkf);
                 ++nNum;
@@ -332,14 +368,20 @@ void LocalMapping::fuseMapPoints() {
             continue;
         sNoMps.insert(pMp);
     }
+    auto sNoMpsEnd = sNoMps.end();
     std::copy_if(sTargetMps.begin(), sTargetMps.end(), std::back_inserter(vTargetMps),
-                 [&sNoMps](MapPoint::SharedPtr pMp) { return sNoMps.find(pMp) == sNoMps.end(); });
+                 [&sNoMps, &sNoMpsEnd](MapPoint::SharedPtr pMp) { return sNoMps.find(pMp) == sNoMpsEnd; });
     ORBMatcher matcher(0.6, true);
-    int nFuse = matcher.fuse(mpCurrKeyFrame, vTargetMps, mpMap);
+    {
+        int nFuse = matcher.fuse(mpCurrKeyFrame, vTargetMps, mpMap);
+        // std::cout << "正向融合成功" << std::endl;
+    }
     int nFuseInv = 0;
     for (auto &pkf : sTargetKfs)
         nFuseInv += matcher.fuse(pkf, mpCurrKeyFrame, mpMap);
+    // std::cout << "反向融合成功" << std::endl;
     KeyFrame::updateConnections(mpCurrKeyFrame);
+    // std::cout << "更新连接成功" << std::endl;
 }
 
 /**
@@ -358,11 +400,12 @@ void LocalMapping::fuseMapPoints() {
  */
 void LocalMapping::cullingKeyFrames() {
     auto vpTargetKfs = mpCurrKeyFrame->getConnectedKfs(0);
+    vpTargetKfs.push_back(mpCurrKeyFrame);
     MapPointDB mapPointDB;
     createMpsDB(vpTargetKfs, mapPointDB);
     for (auto iter = mspToBeErased.begin(); iter != mspToBeErased.end();) {
         auto pkf = *iter;
-        if (pkf->isNotErased()) {
+        if (pkf->isNotErased() || pkf == mpCurrKeyFrame) {
             ++iter;
         } else {
             iter = mspToBeErased.erase(iter);
@@ -502,7 +545,7 @@ void LocalMapping::findParent(std::set<KeyFrameWeak, KeyFrame::WeakCompareFunc> 
  */
 bool LocalMapping::judgeKeyFrame(KeyFramePtr &pkf, const MapPointDB &mapPointDB) {
     auto vpMapPoints = pkf->getMapPoints();
-    auto vKeyPoints = pkf->getLeftKeyPoints();
+    auto &vKeyPoints = pkf->getLeftKeyPoints();
     int nMpNum = 0, nBad = 0;
     for (std::size_t idx = 0; idx < vpMapPoints.size(); ++idx) {
         auto &pMp = vpMapPoints[idx];
@@ -554,7 +597,7 @@ void LocalMapping::createMpsDB(std::vector<KeyFramePtr> &vpTargetKfs, MapPointDB
         for (std::size_t idx = 0; idx < ORBExtractor::mnLevels; ++idx) {
             std::size_t maxId = std::min(idx + 1, (std::size_t)ORBExtractor::mnLevels - 1);
             std::size_t nNum = 0;
-            for (std::size_t jdx = 0; jdx < maxId; ++jdx)
+            for (std::size_t jdx = idx; jdx < maxId + 1; ++jdx)
                 nNum += item.second[jdx];
             pyramidVec.push_back(nNum);
         }
@@ -587,14 +630,18 @@ void LocalMapping::cullingMapPoints() {
             mpMap->eraseMapPoint(pMp);
             continue;
         }
-        auto refID = pMp->getRefKF()->getID();
-        if (currID - refID >= 2 && pMp->getObsNum() == 1) {
+        KeyFrame::SharedPtr refKF = pMp->getRefKF();
+        if (!refKF || refKF->isBad()) {
+            pMp->updateNormalAndDepth();
+            refKF = pMp->getRefKF();
+        }
+        if (!refKF || refKF->isBad() || (currID - refKF->getID() >= 2 && pMp->getObsNum() == 1)) {
             it = mlpAddedMPs.erase(it);
             pMp->setBad();
             mpMap->eraseMapPoint(pMp);
             continue;
         }
-        if (currID - refID > 3) {
+        if (refKF && !refKF->isBad() && currID - refKF->getID() > 3) {
             it = mlpAddedMPs.erase(it);
             continue;
         }

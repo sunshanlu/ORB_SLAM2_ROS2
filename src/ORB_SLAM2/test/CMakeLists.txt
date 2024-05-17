@@ -71,3 +71,33 @@ add_executable(ParallMappingTest ${SOURCE_FILE}
                                  ./LocalMappingTest/ParallMappingTest.cc)
 ament_target_dependencies(ParallMappingTest rclcpp)
 target_link_libraries(ParallMappingTest DEPEND_LIBS)
+
+# Sim3Solver求解器测试
+add_executable(Sim3SolverTest ${SOURCE_FILE} ./Sim3SolverTest/Sim3Test.cc)
+ament_target_dependencies(Sim3SolverTest rclcpp)
+target_link_libraries(Sim3SolverTest DEPEND_LIBS)
+
+# Sim3重投影匹配测试
+add_executable(SearchBySim3Test ${SOURCE_FILE} ./ORBMatcherTest/SearchBySim3.cc)
+ament_target_dependencies(SearchBySim3Test rclcpp)
+target_link_libraries(SearchBySim3Test DEPEND_LIBS)
+
+# Sim3重投影匹配测试
+add_executable(OptimizeSim3Test ${SOURCE_FILE} ./OptimizerTest/OptimizeSim3.cc)
+ament_target_dependencies(OptimizeSim3Test rclcpp)
+target_link_libraries(OptimizeSim3Test DEPEND_LIBS)
+
+# Sim3重投影匹配测试(投影地图点)
+add_executable(SearchBySim3MpsTest ${SOURCE_FILE} ./ORBMatcherTest/SearchBySim3Mps.cc)
+ament_target_dependencies(SearchBySim3MpsTest rclcpp)
+target_link_libraries(SearchBySim3MpsTest DEPEND_LIBS)
+
+# 关键帧数据库测试（寻找回环闭合关键帧）
+add_executable(FindLoopCloseKfsTest ${SOURCE_FILE} ./KeyFrameDBTest/FindLoopCloseKfs.cc)
+ament_target_dependencies(FindLoopCloseKfsTest rclcpp)
+target_link_libraries(FindLoopCloseKfsTest DEPEND_LIBS)
+
+# 回环闭合线程测试
+add_executable(LoopClosingTest ${SOURCE_FILE} ./LoopClosingTest/LoopClosingTest.cc)
+ament_target_dependencies(LoopClosingTest rclcpp)
+target_link_libraries(LoopClosingTest DEPEND_LIBS)

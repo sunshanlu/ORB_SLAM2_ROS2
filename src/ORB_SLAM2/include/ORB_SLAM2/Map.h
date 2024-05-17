@@ -73,6 +73,9 @@ public:
         return mbUpdate;
     }
 
+    /// 获取全局地图锁
+    std::mutex &getGlobalMutex() const { return mMutexGlobal; }
+
 private:
     std::set<KeyFramePtr> mspKeyFrames; ///< 地图中的所有关键帧
     std::set<MapPointPtr> mspMapPoints; ///< 地图中的所有地图点
@@ -80,5 +83,6 @@ private:
     mutable std::mutex mMpMutex;        ///< 地图点互斥锁
     mutable std::mutex mKfMutex;        ///< 关键帧互斥锁
     mutable std::mutex mUpMutex;        ///< 维护地图更新表示的互斥锁
+    mutable std::mutex mMutexGlobal;    ///< 地图改动互斥锁，保证跟踪过程不收回环闭合的影响
 };
 } // namespace ORB_SLAM2_ROS2

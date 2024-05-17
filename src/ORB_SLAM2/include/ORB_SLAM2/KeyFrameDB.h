@@ -25,8 +25,8 @@ public:
     typedef std::shared_ptr<Frame> FramePtr;
     typedef std::shared_ptr<VirtualFrame> VirtualFramePtr;
     typedef std::shared_ptr<DBoW3::Vocabulary> VocabPtr;
-    typedef std::vector<std::multiset<KeyFramePtr>> ConvertIdx;
-    typedef std::map<KeyFrame::SharedPtr, std::size_t> KfAndWordDB;
+    typedef std::vector<std::set<KeyFramePtr>> ConvertIdx;
+    typedef std::map<KeyFramePtr, std::size_t> KfAndWordDB;
 
     KeyFrameDB(std::size_t nWordNum);
 

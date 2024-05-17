@@ -63,6 +63,18 @@ public:
     /// 判断地图点是否在map中
     bool isInMap() const { return mbIsInMap; };
 
+    /// 获取观测方向
+    cv::Mat getViewDirection() const {
+        std::unique_lock<std::mutex> lock(mMutexView);
+        return mViewDirection.clone();
+    }
+
+    /// 设置观测方向
+    void setViewDirection(cv::Mat viewDirection){
+        std::unique_lock<std::mutex> lock(mMutexView);
+        viewDirection.copyTo(mViewDirection);
+    }
+
     /// 返回地图点位置
     cv::Mat getPos() const {
         std::unique_lock<std::mutex> lock(mPosMutex);
@@ -84,8 +96,43 @@ public:
     /// 设置最大距离和最小距离
     void setDistance(KeyFramePtr pRefKf, std::size_t nFeatId);
 
+    /// 获取地图点的最大和最小距离
+    void getDistance(float &nMax, float &nMin) const {
+        std::unique_lock<std::mutex> lock(mMutexDis);
+        nMax = mnMaxDistance;
+        nMin = mnMinDistance;
+    }
+
+    /// 判断d是否在最大距离和最小距离之间
+    bool isGoodDistance(const float &distance) const {
+        std::unique_lock<std::mutex> lock(mMutexDis);
+        if (distance < mnMaxDistance && distance > mnMinDistance)
+            return true;
+        return false;
+    }
+
     /// 获取是否在局部地图中
     bool isLocalMp() const { return mbIsLocalMp; }
+
+    /// 设置地图点的参考关键帧
+    void setRefKF(KeyFramePtr pRefkf, std::size_t nFeatId) {
+        std::unique_lock<std::mutex> lock(mMutexRefKF);
+        mpRefKf = pRefkf;
+        mnRefFeatID = nFeatId;
+    }
+
+    /// 获取地图点的参考关键帧
+    void getRefKF(KeyFramePtr &pRefKf, std::size_t &nFeatId) {
+        std::unique_lock<std::mutex> lock(mMutexRefKF);
+        pRefKf = mpRefKf.lock();
+        nFeatId = mnRefFeatID;
+    }
+
+    /// 设置地图点的代表性描述子
+    void setDesc(cv::Mat desc) {
+        std::unique_lock<std::mutex> lock(mMutexDesc);
+        desc.copyTo(mDescriptor);
+    }
 
     /// 设置是否在局部地图中
     void setLocalMp(bool bIsLocalMp) { mbIsLocalMp = bIsLocalMp; }
@@ -100,7 +147,10 @@ public:
     bool isInVision(VirtualFramePtr pFrame, float &vecDistance, cv::Point2f &uv, float &cosTheta);
 
     /// 获取地图点的代表描述子
-    cv::Mat getDesc() const { return mDescriptor.clone(); }
+    cv::Mat getDesc() const {
+        std::unique_lock<std::mutex> lock(mMutexDesc);
+        return mDescriptor.clone();
+    }
 
     /// 设置nullptr在map上
     void setMapNull() {
@@ -142,7 +192,9 @@ public:
     /// 返回地图点在跟踪过程中的重要程度
     float scoreInTrack() {
         std::unique_lock<std::mutex> lock(mTrackMutex);
-        return (float)mnMatchesInTrack / mnInliersInTrack;
+        if (!mnMatchesInTrack)
+            return 0;
+        return (float)mnInliersInTrack / mnMatchesInTrack;
     }
 
     /// 更新当前关键帧的描述子
@@ -174,6 +226,21 @@ public:
     /// 获取参考关键帧
     KeyFramePtr getRefKF();
 
+    /// 获取回环矫正时刻关键帧
+    KeyFramePtr getLoopKF();
+
+    /// 获取回环矫正参考关键帧
+    KeyFramePtr getLoopRefKF();
+
+    /// 设置回环矫正时刻关键帧
+    void setLoopKF(KeyFramePtr pkf);
+
+    /// 设置回环矫正参考关键帧
+    void setLoopRefKF(KeyFramePtr refKF);
+
+    /// 获取地图点的最大id
+    static const std::size_t getMaxID() { return mnNextId - 1; }
+
 private:
     /// 用于关键帧构造的地图点
     MapPoint(cv::Mat mP3d, KeyFramePtr pRefKf, std::size_t nObs);
@@ -193,15 +260,21 @@ private:
     mutable std::mutex mObsMutex;   ///< 维护mObs的互斥锁
     mutable std::mutex mTrackMutex; ///< 维护跟踪参数的互斥锁
     // mutable std::mutex mRefKFMutex; ///< 维护参考关键帧的互斥锁
-    cv::Mat mDescriptor;      ///< 地图点的代表描述子
-    cv::Mat mViewDirection;   ///< 地图点的观测方向（光心->地图点）
-    float mnMaxDistance;      ///< 最大匹配距离
-    float mnMinDistance;      ///< 最小匹配距离
-    KeyFrameWeakPtr mpRefKf;  ///< 地图点的参考关键帧
-    bool mbRefBad = false;    ///< 参考关键帧是否失效
-    std::size_t mnRefFaatID;  ///< 参考关键帧的ORB特征点索引
-    int mnMatchesInTrack = 0; ///< 在跟踪过程中，被匹配成功的
-    int mnInliersInTrack = 0; ///< 在跟踪过程中，经过优化后还是内点的
+    cv::Mat mDescriptor;            ///< 地图点的代表描述子
+    cv::Mat mViewDirection;         ///< 地图点的观测方向（光心->地图点）
+    float mnMaxDistance;            ///< 最大匹配距离
+    float mnMinDistance;            ///< 最小匹配距离
+    KeyFrameWeakPtr mpRefKf;        ///< 地图点的参考关键帧
+    bool mbRefBad = false;          ///< 参考关键帧是否失效
+    std::size_t mnRefFeatID;        ///< 参考关键帧的ORB特征点索引
+    int mnMatchesInTrack = 0;       ///< 在跟踪过程中，被匹配成功的
+    int mnInliersInTrack = 0;       ///< 在跟踪过程中，经过优化后还是内点的
+    KeyFrameWeakPtr mpLoopTime;     ///< 在回环闭合过程中矫正位置时刻的关键帧
+    KeyFrameWeakPtr mpLoopRefKF;    ///< 在回环闭合过程中矫正参考关键帧
+    mutable std::mutex mMutexRefKF; ///< 参考关键帧和2d点位置的互斥锁
+    mutable std::mutex mMutexDis;   ///< distance的互斥锁
+    mutable std::mutex mMutexView;  ///< 观测向量的互斥锁
+    mutable std::mutex mMutexDesc;  ///< 描述子的互斥锁
 
 public:
     bool mbIsLocalMp = false; ///< 是否在跟踪线程的局部地图中

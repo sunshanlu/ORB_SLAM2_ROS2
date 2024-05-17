@@ -9,7 +9,9 @@
                 "/home/rookie-lu/Project/learn/learn_ros2/install/base_interfaces_demo/include/**",
                 "/opt/ros/foxy/include/**",
                 "/usr/include/**",
-                "${workspaceFolder}/src/ORB_SLAM2/include"
+                "${workspaceFolder}/src/ORB_SLAM2/include",
+                "/opt/ros/foxy/include",
+                "/usr/include/eigen3"
             ],
             "name": "ROS",
             "intelliSenseMode": "gcc-x64",

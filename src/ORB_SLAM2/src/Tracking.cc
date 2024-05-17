@@ -13,7 +13,7 @@
 #include "ORB_SLAM2/Tracking.h"
 #include "ORB_SLAM2/Viewer.h"
 
-DEFINE_int32(min_frame, 0, "插入关键帧的最少普通帧数");
+DEFINE_int32(min_frame, 1, "插入关键帧的最少普通帧数");
 DEFINE_int32(max_frame, 10, "插入关键帧的最大普通帧数");
 DEFINE_int32(depth_th, 40, "基线的depth_th倍数为远点和近点的阈值");
 DEFINE_bool(with_view, false, "是否进行可视化显示");
@@ -22,6 +22,8 @@ DEFINE_string(brief_template_path, "/home/rookie-lu/Project/ORB-SLAM2/ORB-SLAM2-
 DEFINE_bool(insert_keyframe, true, "是否向局部建图线程中插入关键帧");
 
 namespace ORB_SLAM2_ROS2 {
+
+using namespace std::chrono_literals;
 
 Tracking::Tracking(Map::SharedPtr pMap, KFrameDBPtr pKfDB)
     : mnFeatures(2000)
@@ -40,7 +42,11 @@ Tracking::Tracking(Map::SharedPtr pMap, KFrameDBPtr pKfDB)
  * @return cv::Mat 输出的位姿矩阵
  */
 cv::Mat Tracking::grabFrame(cv::Mat leftImg, cv::Mat rightImg) {
+    // if (mpRefKf) {
+    //     std::cout << "跟踪线程，当前参考关键帧id：" << mpRefKf->getID() << std::endl;
+    // }
     /// 为不同的跟踪状态，设置不同的提取ORB特征点的数目
+    // std::unique_lock<std::mutex> lock(mpMap->getGlobalMutex());
     mleftImg = leftImg;
     switch (mStatus) {
     case TrackingState::NOT_IMAGE_YET:
@@ -65,6 +71,7 @@ cv::Mat Tracking::grabFrame(cv::Mat leftImg, cv::Mat rightImg) {
                 mpViewer->setCurrFrame(mpCurrFrame->getPoseInv());
             }
         }
+        // lock.unlock();
         return mpCurrFrame->getPose();
     }
 
@@ -72,33 +79,48 @@ cv::Mat Tracking::grabFrame(cv::Mat leftImg, cv::Mat rightImg) {
     if (mStatus == TrackingState::OK) {
         mpCurrFrame->setPose(mpLastFrame->getPose());
         if (mVelocity.empty() || mpCurrFrame->getID() < mnLastRelocId + 2) {
+            std::cout << mpCurrFrame->getID() << " 回环普通帧ID为：" << getLoopID() << std::endl;
+            std::cout << "参考关键帧ID为：" << mpRefKf->getFrameID() << std::endl;
             bOK = trackReference();
         } else {
             bOK = trackMotionModel();
             if (!bOK)
                 bOK = trackReference();
         }
+        if (!bOK)
+            std::cout << "第一阶段跟踪失败，导致track lost" << std::endl;
     } else {
         bOK = trackReLocalize();
+        if (!bOK)
+            std::cout << "重定位跟踪失败，导致track lost" << std::endl;
     }
 
-    if (bOK)
+    if (bOK) {
         bOK = trackLocalMap();
+        if (!bOK)
+            std::cout << "跟踪局部地图失败，导致track lost" << std::endl;
+    }
     if (bOK) {
         mStatus = TrackingState::OK;
         updateVelocity();
+        // std::cout << "更新速度成功" << std::endl;
         updateTlr();
+        // std::cout << "更新Tlr成功" << std::endl;
         if (FLAGS_insert_keyframe)
             insertKeyFrame();
+        // std::cout << "插入关键帧成功" << std::endl;
+
         mpLastFrame = mpCurrFrame;
         if (mpViewer) {
             mpViewer->setCurrFrame(mpCurrFrame->getPoseInv());
         }
+        // lock.unlock();
         return mpCurrFrame->getPose();
     } else {
         mStatus = TrackingState::LOST;
-        std::cerr << "Tracking LOST" << std::endl;
+        // std::cerr << "Tracking LOST" << std::endl;
     }
+    // lock.unlock();
     return cv::Mat();
 }
 
@@ -107,13 +129,19 @@ void Tracking::insertKeyFrame() {
     if (!needNewKeyFrame())
         return;
     auto kf = updateCurrFrame();
+    kf->setNotErased(true);
+    mpRefKf->setNotErased(false);
+    mpRefKf = kf;
     mpLocalMapper->insertKeyFrame(kf);
+    mnLastInsertId = mpCurrFrame->getID();
+    // std::cout << "插入关键帧的id为 " << kf->getFrameID() << std::endl;
 }
 
 /// 将当前帧升级为关键帧
 KeyFrame::SharedPtr Tracking::updateCurrFrame() {
     std::vector<MapPoint::SharedPtr> mps;
-    mpCurrFrame->unProject(mps);
+    int nCreated = mpCurrFrame->unProject(mps);
+    // std::cout << "当前关键帧创建了地图点数目: " << nCreated << std::endl;
     return KeyFrame::create(*mpCurrFrame);
 }
 
@@ -126,11 +154,10 @@ void Tracking::updateVelocity() {
 
 /// 更新mTlr（上一帧到参考关键帧的位姿）
 void Tracking::updateTlr() {
+    /// 因为只是用到参考关键帧的速度，因此这里没什么问题
     KeyFrame::SharedPtr refKF = mpCurrFrame->getRefKF();
-    if (!refKF || refKF->isBad()) {
-        /// 如果参考关键帧被删除了，那么下一次跟踪只能使用参考关键帧跟踪
-        mVelocity = cv::Mat();
-        return;
+    if (!refKF) {
+        refKF = mpRefKf;
     }
     mTlr = mpCurrFrame->getPose() * refKF->getPoseInv();
 }
@@ -201,6 +228,7 @@ void Tracking::buildLocalKfs() {
             insertLocalKFrame(kf2);
         }
     }
+    // std::cout << "局部地图中，关键帧的数目为：" << mvpLocalKfs.size() << std::endl;
 }
 
 /**
@@ -215,12 +243,13 @@ void Tracking::buildLocalMps() {
         mvpLocalMps.clear();
 
         for (auto &kf : mvpLocalKfs) {
-            auto mvpMps = kf->getMapPoints();
-            for (auto &pMp : mvpMps)
+            auto vpMps = kf->getMapPoints();
+            for (auto &pMp : vpMps)
                 insertLocalMPoint(pMp);
         }
     }
     setUpdate(true);
+    // std::cout << "局部地图中，地图点数目为：" << mvpLocalMps.size() << std::endl;
 }
 
 /**
@@ -254,7 +283,7 @@ void Tracking::initForStereo() {
     mStatus = TrackingState::OK;
     mpRefKf = kfInit;
     mpLocalMapper->insertKeyFrame(kfInit);
-    std::cout << "地图初始化成功, 其中地图点有" << mpMap->mapPointsInMap() << std::endl;
+    // std::cout << "地图初始化成功, 其中地图点有" << mpMap->mapPointsInMap() << std::endl;
     // showCurrentFrame();
 }
 
@@ -267,14 +296,16 @@ void Tracking::initForStereo() {
  * @return false    跟踪参考关键帧成功
  */
 bool Tracking::trackReference() {
+    // std::cout << "使用参考关键帧跟踪" << std::endl;
     ORBMatcher matcher(0.7, true);
     std::vector<cv::DMatch> matches;
     int nMatches = matcher.searchByBow(mpCurrFrame, mpRefKf, matches);
+    std::cout << "跟踪参考关键帧中，匹配数目：" << nMatches << std::endl;
     if (nMatches < 10) {
         return false;
     }
     int nInliers = Optimizer::OptimizePoseOnly(mpCurrFrame);
-
+    std::cout << "跟踪参考关键帧中，内点个数：" << nInliers << std::endl;
     return nInliers >= 10;
 }
 
@@ -287,6 +318,7 @@ bool Tracking::trackReference() {
  * @return false    跟踪失败
  */
 bool Tracking::trackMotionModel() {
+    // std::cout << "使用恒速模型跟踪" << std::endl;
     std::vector<cv::DMatch> matches;
     processLastFrame();
     mpCurrFrame->setPose(mVelocity * mpLastFrame->getPose());
@@ -298,7 +330,18 @@ bool Tracking::trackMotionModel() {
     if (nMatches < 20) {
         return false;
     }
-    int inLiers = Optimizer::OptimizePoseOnly(mpCurrFrame);
+    Optimizer::OptimizePoseOnly(mpCurrFrame);
+    // std::cout << "恒速模型跟踪中，匹配数目：" << nMatches << std::endl;
+    // std::cout << "恒速模型跟踪中，内点个数：" << inLiers << std::endl;
+    int inLiers = 0;
+    auto vMps = mpCurrFrame->getMapPoints();
+    for (std::size_t idx = 0; idx < vMps.size(); ++idx) {
+        auto &pMp = vMps[idx];
+        if (pMp && !pMp->isInMap())
+            mpCurrFrame->setMapPoint(idx, nullptr);
+        else if(pMp && pMp->isInMap())
+            ++inLiers;
+    }
     return inLiers >= 10;
 }
 
@@ -437,16 +480,16 @@ bool Tracking::trackReLocalize() {
             if (vbDiscard[idx])
                 continue;
             bool bNoMore = false;
-            cv::Mat Rcwi, tcwi;
+            PnPRet modelReti;
             vInliers.clear();
-            bool ret = relocBowParam.mvpSolvers[idx]->iterate(5, Rcwi, tcwi, bNoMore, vInliers);
+            bool ret = relocBowParam.mvpSolvers[idx]->iterate(5, modelReti, bNoMore, vInliers);
             if (bNoMore) {
                 vbDiscard[idx] = true;
                 --nCandidates;
             }
             if (!ret)
                 continue;
-            setCurrFrameAttrib(vInliers, relocBowParam, idx, vpCandidateKFs, Rcwi, tcwi);
+            setCurrFrameAttrib(vInliers, relocBowParam, idx, vpCandidateKFs, modelReti.mRcw, modelReti.mtcw);
             int nInliers = Optimizer::OptimizePoseOnly(mpCurrFrame);
             if (nInliers < 10)
                 continue;
@@ -508,22 +551,25 @@ bool Tracking::addMatchByProject(KeyFrame::SharedPtr pKFrame, int &nInliers) {
  * @return false
  */
 bool Tracking::trackLocalMap() {
+    // std::cout << "跟踪局部地图" << std::endl;
     buildLocalMap();
     ORBMatcher matcher(0.8, true);
     float th = 3;
-    if (mpCurrFrame->getID() < mnLastRelocId + 2)
-        th = 5;
+    if (mnLastRelocId > 0)
+        if (mpCurrFrame->getID() < mnLastRelocId + 2)
+            th = 5;
 
     std::vector<cv::DMatch> matches;
     int nMatches = 0;
     {
         std::unique_lock<std::mutex> lock(mMutexLMps);
         nMatches = matcher.searchByProjection(mpCurrFrame, mvpLocalMps, th, matches);
+        // std::cout << "跟踪局部地图中，匹配个数：" << nMatches << std::endl;
     }
     if (nMatches < 30)
         return false;
     int nInliers = Optimizer::OptimizePoseOnly(mpCurrFrame);
-    std::cout << "跟踪局部地图中，内点个数：" << nInliers << std::endl;
+    // std::cout << "跟踪局部地图中，内点个数：" << nInliers << std::endl;
     if (nInliers < 30)
         return false;
     if (mpCurrFrame->getID() < mnLastRelocId + FLAGS_max_frame && nInliers < 50)
@@ -557,7 +603,7 @@ void Tracking::processLastFrame() {
  *          (2) 满足插入关键帧的最小帧数间隔且局部建图线程有空
  *          (3) 在双目或者RGBD情况下，满足一个即可
  *              a) 跟踪到的点，不足参考关键帧地图点的1/4
- *              b) 跟踪到的近点少于跟踪到的远点
+ *              b) 跟踪到的近点少于没有跟踪到的近点
  *      2. 条件2，满足((1) || (2)) && (3)
  *          (1) 当前跟踪到的点数目，小于阈值比例
  *              a) 单目相机情况下是0.9
@@ -581,21 +627,26 @@ bool Tracking::needNewKeyFrame() {
     if (mnLastRelocId > 0)
         if (mpCurrFrame->getID() - mnLastRelocId <= FLAGS_max_frame)
             return false;
-    // todo 局部建图线程被回环闭合线程使用
+    if (mpLocalMapper->isRequestStop()) {
+        std::this_thread::sleep_for(10s);
+        return false;
+    }
 
     auto refMps = mpRefKf->getMapPoints();
     auto currMps = mpCurrFrame->getMapPoints();
+
     int nRefMps = 0, nCurrMps = 0;
+    int nObs = mpRefKf->getID() == 0 ? 0 : 1;
     for (std::size_t idx = 0; idx < refMps.size(); ++idx) {
-        auto pMp = refMps[idx];
-        if (pMp && !pMp->isBad() && pMp->isInMap())
+        auto &pMp = refMps[idx];
+        if (pMp && !pMp->isBad() && pMp->getObsNum() > nObs)
             ++nRefMps;
         else
             mpRefKf->setMapPoint(idx, nullptr);
     }
     for (std::size_t idx = 0; idx < currMps.size(); ++idx) {
-        auto pMp = currMps[idx];
-        if (pMp && !pMp->isBad())
+        auto &pMp = currMps[idx];
+        if (pMp && !pMp->isBad() && pMp->isInMap())
             ++nCurrMps;
         else {
             mpCurrFrame->setMapPoint(idx, nullptr);
@@ -604,29 +655,35 @@ bool Tracking::needNewKeyFrame() {
     }
     auto &vDepths = mpCurrFrame->getDepth();
     double depthTh = Camera::mfBl * FLAGS_depth_th;
-    int nClose = 0, nFar = 0;
+
+    int nTrackedClose = 0, nNoTrackedClose = 0;
     for (std::size_t idx = 0; idx < vDepths.size(); ++idx) {
         const double &depth = vDepths[idx];
         auto &pMp = currMps[idx];
-        if (pMp && !pMp->isBad() && pMp->isInMap())
-            if (depth > 0 && depth < depthTh)
-                ++nClose;
-            else if (depth >= depthTh)
-                ++nFar;
+        if (depth < depthTh && depth > 0) {
+            if (pMp && !pMp->isBad())
+                ++nTrackedClose;
+            else
+                ++nNoTrackedClose;
+        }
     }
-    float ratio = nCurrMps / (float)nRefMps;
-    bool bNeedClose = nClose < 100 && nFar > 70;
+    float ratio = nCurrMps / ((float)nRefMps + 1e-5);
+    // std::cout << ratio << " " << nCurrMps << " " << nRefMps << std::endl;
+
+    bool bNeedClose = nTrackedClose < 100 && nNoTrackedClose > 70;
     bool bLocalMapperIdle = mpLocalMapper->getAcceptKF();
     bool c1a = mpCurrFrame->getID() - mnLastInsertId > FLAGS_max_frame;
     bool c1b = mpCurrFrame->getID() - mnLastInsertId > FLAGS_min_frame && bLocalMapperIdle;
     bool c1c = ratio < 0.25 || bNeedClose;
+    // bool c1c = ratio < 0.25;
     bool c1 = c1a || c1b || c1c;
 
     float ratioTh = 0.75;
     if (mpMap->keyFramesInMap() < 2)
         ratioTh = 0.4;
     bool c2a = ratio < ratioTh;
-    bool c2b = c1c;
+    // std::cout << "判断条件c2a: " << c2a << std::endl;
+    bool c2b = bNeedClose;
     bool c2 = c2a || c2b;
     bool flag1 = c1 && c2;
     if (!flag1)
@@ -634,8 +691,8 @@ bool Tracking::needNewKeyFrame() {
     if (bLocalMapperIdle)
         return true;
     else {
+        mpLocalMapper->setAbortBA(true);
         if (mpLocalMapper->getKFNum() < 3) {
-            mpLocalMapper->setAbortBA(true);
             return true;
         } else
             return false;
