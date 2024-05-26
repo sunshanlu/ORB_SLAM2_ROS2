@@ -1,6 +1,16 @@
 # ORB-SLAM2-ROS2
 
+![C++](https://img.shields.io/badge/c++-std14-blue)
+![ubuntu](https://img.shields.io/badge/platform-ubuntu20.04-orange)
+![SLAM](https://img.shields.io/badge/slam-stereo--visual-green)
+
 ## 1.介绍
+
+<div align="center">
+	<a href="https://www.bilibili.com/video/BV1yi421S73r/?vd_source=9d945accb7548e6244fd39d5aee6126d" title="bilibili:ORB_SLAM2_ROS2">
+		<img src="https://raw.githubusercontent.com/sunshanlu/ORB-SLAM2-ROS2/main/ORB_SLAM2_ROS2.jpg" alt="ORB_SLAM2_ROS2" width=600>
+	</a>
+</div>
 
 基于ORB_SLAM2的思想，对ORB_SLAM2进行了**重写**。
 
