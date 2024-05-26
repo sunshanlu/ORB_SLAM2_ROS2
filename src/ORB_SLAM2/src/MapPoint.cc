@@ -483,6 +483,74 @@ KeyFrame::SharedPtr MapPoint::getRefKF() {
     return mpRefKf.lock();
 }
 
+/**
+ * @brief 将地图点保存到流中去
+ *
+ * @param os 输入的输出流
+ * @param mp 输入的地图点
+ * @return std::ostream&
+ */
+std::ostream &operator<<(std::ostream &os, const MapPoint &mp) {
+    auto refkf = mp.mpRefKf.lock();
+    if (!refkf || refkf->isBad()) {
+        RCLCPP_ERROR(rclcpp::get_logger("ORB_SLAM2"), "地图点没有参考关键帧");
+        return os;
+    }
+    os << mp.mId << " " << mp.mnMaxDistance << " " << mp.mnMinDistance << " " << refkf->getID() << " " << mp.mnRefFeatID
+       << " " << mp.mnMatchesInTrack << " " << mp.mnInliersInTrack << std::endl;
+    os << mp.mPoint3d.at<float>(0) << " " << mp.mPoint3d.at<float>(1) << " " << mp.mPoint3d.at<float>(2) << " ";
+    os << mp.mViewDirection.at<float>(0) << " " << mp.mViewDirection.at<float>(1) << " "
+       << mp.mViewDirection.at<float>(2) << std::endl;
+    for (int i = 0; i < 32; ++i)
+        os << (int)mp.mDescriptor.at<uchar>(i) << " ";
+    os << std::endl;
+    return os;
+}
+
+/**
+ * @brief 从流中读取MapPoint信息
+ *
+ * @param is    输入的输入流信息
+ * @param info  输入的MapPoint的观测相关信息
+ */
+bool MapPoint::readFromStream(std::istream &is, MapPointInfo &info) {
+    std::string lineStr;
+    std::stringstream streamStr;
+
+    if (!getline(is, lineStr))
+        return false;
+    streamStr << lineStr;
+    streamStr >> mId >> mnMaxDistance >> mnMinDistance >> info.mnRefKFid >> info.mnRefFeatID >> mnMatchesInTrack >>
+        mnInliersInTrack;
+
+    streamStr.clear();
+    getline(is, lineStr);
+    streamStr << lineStr;
+    cv::Mat p3d(3, 1, CV_32F), vd(3, 1, CV_32F);
+    streamStr >> p3d.at<float>(0) >> p3d.at<float>(1) >> p3d.at<float>(2) >> vd.at<float>(0) >> vd.at<float>(1) >>
+        vd.at<float>(2);
+    mPoint3d = p3d;
+    mViewDirection = vd;
+
+    streamStr.clear();
+    getline(is, lineStr);
+    streamStr << lineStr;
+    cv::Mat Desc(1, 32, CV_8U);
+    for (int i = 0; i < 32; ++i) {
+        int val;
+        streamStr >> val;
+        Desc.at<uchar>(i) = val;
+    }
+    mDescriptor = Desc;
+    return true;
+}
+
+/// 基于输入流的构造函数
+MapPoint::MapPoint(std::istream &ifs, MapPointInfo &info, bool &notEof)
+    : mObs(KeyFrame::weakCompare) {
+    notEof = readFromStream(ifs, info);
+}
+
 unsigned int MapPoint::mnNextId = 0;
 
 } // namespace ORB_SLAM2_ROS2

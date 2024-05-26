@@ -54,7 +54,7 @@
         {
             "label": "colcon: build target ORBExtractorTest",
             "type": "shell",
-            "command": "colcon build --build-base ${workspaceFolder}/build/Debug --install-base ${workspaceFolder}/install/Debug --cmake-args -DCMAKE_BUILD_TYPE=Debug --cmake-target ORBExtractorTest",
+            "command": "colcon build --packages-select orb_slam2 --build-base ${workspaceFolder}/build/Debug --install-base ${workspaceFolder}/install/Debug --cmake-args -DCMAKE_BUILD_TYPE=Debug --cmake-target ORBExtractorTest",
             "problemMatcher": []
         },
         {

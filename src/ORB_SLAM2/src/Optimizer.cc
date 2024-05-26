@@ -113,7 +113,6 @@ int Optimizer::OptimizePoseOnly(Frame::SharedPtr pFrame) {
         poseVertex->setEstimate(se3);
         graph.initializeOptimization(0);
         graph.optimize(10);
-        // std::cout << poseVertex->estimate() << std::endl;
 
         /// 寻找超出要求的误差边
         for (auto &item : monoEdges) {
@@ -160,7 +159,7 @@ int Optimizer::OptimizePoseOnly(Frame::SharedPtr pFrame) {
             continue;
         bool isPositive = false;
         auto pointUV = pFrame->project2UV(mapPointPoses[idx], isPositive);
-        if (!isPositive || pointUV.x > pFrame->mnMaxU || pointUV.x < 0 || pointUV.y > pFrame->mnMaxV || pointUV.y < 0) {
+        if (!isPositive || pointUV.x > pFrame->mfMaxU || pointUV.x < 0 || pointUV.y > pFrame->mfMaxV || pointUV.y < 0) {
             inLier[idx] = false;
             ++nBad;
         }
@@ -386,267 +385,6 @@ void Optimizer::OptimizeLocalMap(KeyFramePtr pkframe, bool &isStop) {
         }
         KeyFrame::updateConnections(pkframe);
     }
-
-    // /// step1: 获取一阶相连和二阶相连误差边统计
-    // std::map<MapPointPtr, std::map<KeyFramePtr, std::size_t>> noFixedConnected;
-    // std::map<MapPointPtr, std::map<KeyFramePtr, std::size_t>> fixedConnected;
-    // auto connectedKFs = pkframe->getAllConnected();
-    // connectedKFs.insert({pkframe, 5000});
-    // for (auto &connect : connectedKFs) {
-    //     KeyFrame::SharedPtr pKf = connect.first.lock();
-    //     if (!pKf || pKf->isBad())
-    //         continue;
-    //     auto mapPoints = pKf->getMapPoints();
-    //     for (auto &pMp : mapPoints) {
-    //         if (!pMp || pMp->isBad() || !pMp->isInMap())
-    //             continue;
-
-    //         auto obss = pMp->getObservation();
-    //         std::map<KeyFramePtr, std::size_t> &noFixedConnectedi = noFixedConnected[pMp];
-    //         std::map<KeyFramePtr, std::size_t> &fixedConnectedi = fixedConnected[pMp];
-    //         for (auto &obs : obss) {
-    //             auto pkf = obs.first.lock();
-    //             if (!pkf || pkf->isBad())
-    //                 continue;
-    //             if (connectedKFs.find(pkf) != connectedKFs.end())
-    //                 noFixedConnectedi.insert({pkf, obs.second});
-    //             else
-    //                 fixedConnectedi.insert({pkf, obs.second});
-    //         }
-    //     }
-    // }
-
-    // /// step2: 构造优化器
-    // auto lm = new g2o::OptimizationAlgorithmLevenberg(std::make_unique<BSSE3>(std::make_unique<LSSE3Eigen>()));
-    // g2o::SparseOptimizer graph;
-    // graph.setAlgorithm(lm);
-    // graph.setForceStopFlag(&isStop);
-
-    // /// step3: 添加顶点信息和边信息
-    // std::size_t vertexID = 0, edgeID = 0;
-    // EdgeDB edgeDB;
-    // std::unordered_map<MapPointPtr, g2o::VertexPointXYZ *> landmarks;
-    // std::unordered_map<KeyFramePtr, g2o::VertexSE3Expmap *> frames;
-    // for (auto &noFixed : noFixedConnected) {
-    //     auto pMp = noFixed.first;
-    //     g2o::VertexPointXYZ *landmark;
-    //     if (landmarks.find(pMp) == landmarks.end()) {
-    //         cv::Mat position = pMp->getPos();
-    //         landmark = new g2o::VertexPointXYZ();
-    //         landmark->setId(vertexID++);
-    //         auto v = Converter::ConvertPw2Vector3(position);
-    //         landmark->setEstimate(v);
-    //         landmark->setMarginalized(true);
-    //         landmarks.insert({pMp, landmark});
-    //         graph.addVertex(landmark);
-    //     } else
-    //         landmark = landmarks.at(pMp);
-    //     auto &kfAndKps = noFixed.second;
-    //     for (auto &item : kfAndKps) {
-    //         auto pkf = item.first;
-    //         g2o::VertexSE3Expmap *frame;
-    //         if (frames.find(pkf) == frames.end()) {
-    //             cv::Mat Rcw, tcw;
-    //             pkf->getPose(Rcw, tcw);
-    //             frame = new g2o::VertexSE3Expmap();
-    //             frame->setId(vertexID++);
-    //             frame->setEstimate(Converter::ConvertTcw2SE3(Rcw, tcw));
-    //             if (pkf->getID() == 0)
-    //                 frame->setFixed(true);
-    //             frames.insert({pkf, frame});
-    //             graph.addVertex(frame);
-    //         } else
-    //             frame = frames.at(pkf);
-    //         const auto &kp = pkf->getLeftKeyPoint(item.second);
-    //         const double &rightU = pkf->getRightU(item.second);
-    //         auto rk = new g2o::RobustKernelHuber();
-    //         if (rightU < 0) {
-    //             rk->setDelta(deltaMono);
-    //             auto edgeMono = new g2o::EdgeSE3ProjectXYZ();
-    //             edgeMono->setId(edgeID++);
-    //             edgeMono->setVertex(0, landmark);
-    //             edgeMono->setVertex(1, frame);
-    //             edgeMono->fx = Camera::mfFx;
-    //             edgeMono->fy = Camera::mfFy;
-    //             edgeMono->cx = Camera::mfCx;
-    //             edgeMono->cy = Camera::mfCy;
-    //             auto e = g2o::Vector2((double)kp.pt.x, (double)kp.pt.y);
-    //             edgeMono->setMeasurement(e);
-    //             /// 信息矩阵是协方差矩阵的逆
-    //             edgeMono->setInformation(Eigen::Matrix2d::Identity() * pkf->getScaledFactorInv2(kp.octave));
-    //             edgeMono->setRobustKernel(rk);
-    //             graph.addEdge(edgeMono);
-    //             edgeDB[edgeMono] = std::make_tuple(pMp, pkf, item.second, true);
-    //         } else {
-    //             rk->setDelta(deltaStereo);
-    //             auto edgeStereo = new g2o::EdgeStereoSE3ProjectXYZ();
-    //             edgeStereo->setId(edgeID++);
-    //             edgeStereo->setVertex(0, landmark);
-    //             edgeStereo->setVertex(1, frame);
-    //             edgeStereo->fx = Camera::mfFx;
-    //             edgeStereo->fy = Camera::mfFy;
-    //             edgeStereo->cx = Camera::mfCx;
-    //             edgeStereo->cy = Camera::mfCy;
-    //             edgeStereo->bf = Camera::mfBf;
-    //             auto e = g2o::Vector3((double)kp.pt.x, (double)kp.pt.y, (double)rightU);
-    //             edgeStereo->setMeasurement(e);
-    //             edgeStereo->setInformation(Eigen::Matrix3d::Identity() * pkf->getScaledFactorInv2(kp.octave));
-    //             edgeStereo->setRobustKernel(rk);
-    //             graph.addEdge(edgeStereo);
-    //             edgeDB[edgeStereo] = std::make_tuple(pMp, pkf, item.second, false);
-    //         }
-    //     }
-    // }
-    // for (auto &fixed : fixedConnected) {
-    //     auto pMp = fixed.first;
-    //     g2o::VertexPointXYZ *landmark;
-    //     if (landmarks.find(pMp) == landmarks.end()) {
-    //         cv::Mat position = pMp->getPos();
-    //         landmark = new g2o::VertexPointXYZ();
-    //         landmark->setId(vertexID++);
-    //         landmark->setEstimate(Converter::ConvertPw2Vector3(position));
-    //         landmark->setMarginalized(true);
-    //         landmarks.insert({pMp, landmark});
-    //         graph.addVertex(landmark);
-    //     } else
-    //         landmark = landmarks.at(pMp);
-    //     auto &kfAndKps = fixed.second;
-    //     for (auto &item : kfAndKps) {
-    //         auto pkf = item.first;
-    //         g2o::VertexSE3Expmap *frame;
-    //         if (frames.find(pkf) == frames.end()) {
-    //             cv::Mat Rcw, tcw;
-    //             pkf->getPose(Rcw, tcw);
-    //             frame = new g2o::VertexSE3Expmap();
-    //             frame->setId(vertexID++);
-    //             frame->setEstimate(Converter::ConvertTcw2SE3(Rcw, tcw));
-    //             frame->setFixed(true);
-    //             frames.insert({pkf, frame});
-    //             graph.addVertex(frame);
-    //         } else
-    //             frame = frames.at(pkf);
-    //         const auto &kp = pkf->getLeftKeyPoint(item.second);
-    //         const double &rightU = pkf->getRightU(item.second);
-    //         auto rk = new g2o::RobustKernelHuber();
-    //         if (rightU < 0) {
-    //             rk->setDelta(deltaMono);
-    //             auto edgeMono = new g2o::EdgeSE3ProjectXYZ();
-    //             edgeMono->setId(edgeID++);
-    //             edgeMono->setVertex(0, landmark);
-    //             edgeMono->setVertex(1, frame);
-    //             edgeMono->fx = Camera::mfFx;
-    //             edgeMono->fy = Camera::mfFy;
-    //             edgeMono->cx = Camera::mfCx;
-    //             edgeMono->cy = Camera::mfCy;
-    //             edgeMono->setMeasurement(g2o::Vector2((double)kp.pt.x, (double)kp.pt.y));
-    //             /// 信息矩阵是协方差矩阵的逆
-    //             edgeMono->setInformation(Eigen::Matrix2d::Identity() * pkf->getScaledFactorInv2(kp.octave));
-    //             edgeMono->setRobustKernel(rk);
-    //             graph.addEdge(edgeMono);
-    //             edgeDB[edgeMono] = std::make_tuple(pMp, pkf, item.second, true);
-    //         } else {
-    //             rk->setDelta(deltaStereo);
-    //             auto edgeStereo = new g2o::EdgeStereoSE3ProjectXYZ();
-    //             edgeStereo->setId(edgeID++);
-    //             edgeStereo->setVertex(0, landmark);
-    //             edgeStereo->setVertex(1, frame);
-    //             edgeStereo->fx = Camera::mfFx;
-    //             edgeStereo->fy = Camera::mfFy;
-    //             edgeStereo->cx = Camera::mfCx;
-    //             edgeStereo->cy = Camera::mfCy;
-    //             edgeStereo->bf = Camera::mfBf;
-    //             edgeStereo->setMeasurement(g2o::Vector3((double)kp.pt.x, (double)kp.pt.y, (double)rightU));
-    //             edgeStereo->setInformation(Eigen::Matrix3d::Identity() * pkf->getScaledFactorInv2(kp.octave));
-    //             edgeStereo->setRobustKernel(rk);
-    //             graph.addEdge(edgeStereo);
-    //             edgeDB[edgeStereo] = std::make_tuple(pMp, pkf, item.second, false);
-    //         }
-    //     }
-    // }
-
-    // /// step4 进行优化
-    // if (isStop)
-    //     return;
-
-    // graph.initializeOptimization();
-    // graph.optimize(5);
-    // if (!isStop) {
-    //     for (auto &item : edgeDB) {
-    //         auto pkf = std::get<1>(item.second);
-    //         auto kp = pkf->getLeftKeyPoint(std::get<2>(item.second));
-    //         auto edge = item.first;
-    //         float sigma2 = pkf->getScaledFactor2(kp.octave);
-    //         bool isMono = std::get<3>(item.second);
-    //         float cov = 0;
-    //         if (isMono) {
-    //             auto edge = dynamic_cast<g2o::EdgeSE3ProjectXYZ *>(item.first);
-    //             cov = 5.991;
-    //             if (edge->chi2() > cov * sigma2 || !edge->isDepthPositive())
-    //                 edge->setLevel(1);
-    //             edge->setRobustKernel(nullptr);
-    //         } else {
-    //             auto edge = dynamic_cast<g2o::EdgeStereoSE3ProjectXYZ *>(item.first);
-    //             cov = 7.815;
-    //             if (edge->chi2() > cov * sigma2 || !edge->isDepthPositive())
-    //                 edge->setLevel(1);
-    //             edge->setRobustKernel(nullptr);
-    //         }
-    //     }
-    //     graph.initializeOptimization();
-    //     graph.optimize(10);
-    // }
-
-    // // std::cout << "关键帧和地图点之间的观测" << std::endl;
-    // for (auto &item : edgeDB) {
-    //     auto &pMp = std::get<0>(item.second);
-    //     auto &pkf = std::get<1>(item.second);
-    //     auto &idx = std::get<2>(item.second);
-    //     auto &kp = pkf->getLeftKeyPoint(idx);
-    //     float sigma2 = pkf->getScaledFactor2(kp.octave);
-    //     bool isMono = std::get<3>(item.second);
-    //     float cov = 0;
-    //     if (isMono) {
-    //         cov = 5.991;
-    //         auto edge = dynamic_cast<g2o::EdgeSE3ProjectXYZ *>(item.first);
-    //         edge->computeError();
-    //         if (edge->chi2() > cov * sigma2 || !edge->isDepthPositive()) {
-    //             pkf->setMapPoint(idx, nullptr);
-    //             pMp->eraseObservetion(pkf);
-    //         }
-    //     } else {
-    //         cov = 7.815;
-    //         auto edge = dynamic_cast<g2o::EdgeStereoSE3ProjectXYZ *>(item.first);
-    //         edge->computeError();
-    //         if (edge->chi2() > cov * sigma2 || !edge->isDepthPositive()) {
-    //             pkf->setMapPoint(idx, nullptr);
-    //             pMp->eraseObservetion(pkf);
-    //         }
-    //     }
-    // }
-
-    // /// step 5设置关键帧和地图点的位姿和位置信息
-    // // std::cout << "开始设置关键帧位姿" << std::endl;
-    // for (auto &frame : frames) {
-    //     auto &pkf = frame.first;
-    //     auto &vertex = frame.second;
-    //     cv::Mat Tcw = Converter::ConvertSE32Tcw(vertex->estimate());
-    //     if (pkf && !pkf->isBad())
-    //         pkf->setPose(Tcw);
-    // }
-
-    // /// 需要先设置关键帧的位姿，再设置地图点（因为地图点依靠关键帧的数据去更新参数）
-    // // std::cout << "开始设置地图点位置" << std::endl;
-    // for (auto &landmark : landmarks) {
-    //     auto &pMp = landmark.first;
-    //     auto &vertex = landmark.second;
-    //     cv::Mat pos = Converter::ConvertVector32Pw(vertex->estimate());
-    //     if (pMp && !pMp->isBad() && pMp->isInMap()) {
-    //         pMp->setPos(pos);
-    //         pMp->updateDescriptor();
-    //         pMp->updateNormalAndDepth();
-    //     }
-    // }
-    // KeyFrame::updateConnections(pkframe);
 }
 
 /**
@@ -973,8 +711,6 @@ void Optimizer::optimizeEssentialGraph(const LoopConnection &mLoopConnections, M
         vScwg[vID] = Siwg;
         vScw[vID] = Siw;
         vpSim3Vertexes[vID] = vi;
-        // if (vID == 0 || vID == pLoopKf->getID())
-        //     vi->setFixed(true);
         if (vID == pLoopKf->getID())
             vi->setFixed(true);
         optimizer.addVertex(vi);
@@ -1009,8 +745,6 @@ void Optimizer::optimizeEssentialGraph(const LoopConnection &mLoopConnections, M
             e->setId(eID++);
             e->setInformation(eInformation);
             optimizer.addEdge(e);
-            if (id1 <= id2)
-                std::cerr << "被观测部分出现了id滞后的现象" << std::endl;
             sAlreadyConnected.insert({id1, id2});
         }
     }
@@ -1058,51 +792,157 @@ void Optimizer::optimizeEssentialGraph(const LoopConnection &mLoopConnections, M
         }
     }
     optimizer.initializeOptimization();
-    // std::cout << "本质图优化部分开始" << std::endl;
-    // std::cout << "本质图中，边的数目为：" << eID << std::endl;
-    // std::cout << "本质图中，顶点的数目为：" << vNum << std::endl;
     optimizer.optimize(20);
-    // std::cout << "本质优化部分成功" << std::endl;
 
-    {
-        std::unique_lock<std::mutex> lock(mpMap->getGlobalMutex());
-        /// step4: 矫正关键帧位姿
-        std::cout << "开始矫正关键帧位姿" << std::endl;
-        // auto g2oSwc0 = vpSim3Vertexes[0]->estimate().inverse();
-        for (std::size_t idx = 0; idx <= nMaxID; ++idx) {
-            auto &pVertex = vpSim3Vertexes[idx];
-            if (!pVertex)
-                continue;
-            auto &pKf = vKeyFrames[idx];
-            g2o::Sim3 g2oScwg = pVertex->estimate();
-            // Sim3Ret Scw = Converter::ConvertG2o2Sim3(g2oScwg * g2oSwc0);
-            Sim3Ret Scw = Converter::ConvertG2o2Sim3(g2oScwg);
-            vG2oSwc[idx] = Scw.inv();
-            pKf->setPose(Scw.mRqp, Scw.mtqp / Scw.mfS);
-        }
+    /// step4: 矫正关键帧位姿
+    auto g2oSwc0 = vpSim3Vertexes[0]->estimate().inverse();
+    for (std::size_t idx = 0; idx <= nMaxID; ++idx) {
+        auto &pVertex = vpSim3Vertexes[idx];
+        if (!pVertex)
+            continue;
+        auto &pKf = vKeyFrames[idx];
+        g2o::Sim3 g2oScwg = pVertex->estimate();
+        Sim3Ret Scw = Converter::ConvertG2o2Sim3(g2oScwg * g2oSwc0);
+        // Sim3Ret Scw = Converter::ConvertG2o2Sim3(g2oScwg);
+        vG2oSwc[idx] = Scw.inv();
+        pKf->setPose(Scw.mRqp, Scw.mtqp / Scw.mfS);
+    }
 
-        /// step5: 矫正地图点位置
-        std::cout << "开始矫正地图点位置" << std::endl;
-        auto vAllMapPoints = mpMap->getAllMapPoints();
-        for (const auto &pMp : vAllMapPoints) {
-            if (!pMp || pMp->isBad())
-                continue;
-            KeyFrame::SharedPtr pCorrectKF;
-            if (pMp->getLoopKF() == pCurrKf)
-                pCorrectKF = pMp->getLoopRefKF();
-            else
-                pCorrectKF = pMp->getRefKF();
-            if (!pCorrectKF || pCorrectKF->isBad())
-                continue;
-            cv::Mat p3dW = pMp->getPos();
-            std::size_t kfID = pCorrectKF->getID();
-            cv::Mat correctedP3dW = vG2oSwc[kfID] * (vScw[kfID] * p3dW);
-            pMp->setPos(correctedP3dW);
-            pMp->updateDescriptor();
-            pMp->updateNormalAndDepth();
+    /// step5: 矫正地图点位置
+    auto vAllMapPoints = mpMap->getAllMapPoints();
+    for (const auto &pMp : vAllMapPoints) {
+        if (!pMp || pMp->isBad())
+            continue;
+        KeyFrame::SharedPtr pCorrectKF;
+        if (pMp->getLoopKF() == pCurrKf){
+            pCorrectKF = pMp->getLoopRefKF();
+            pMp->setLoopRefKF(nullptr);
         }
+        else
+            pCorrectKF = pMp->getRefKF();
+        if (!pCorrectKF || pCorrectKF->isBad())
+            continue;
+        cv::Mat p3dW = pMp->getPos();
+        std::size_t kfID = pCorrectKF->getID();
+        cv::Mat correctedP3dW = vG2oSwc[kfID] * (vScw[kfID] * p3dW);
+        pMp->setPos(correctedP3dW);
+        pMp->updateDescriptor();
+        pMp->updateNormalAndDepth();
     }
     mpMap->setUpdate(true);
+}
+
+/**
+ * @brief 优化全局BA
+ * @details
+ *      1. 这时的全局BA优化和局部建图线程的关键帧增加和删除是同步进行的
+ *      2. 因此这里的vpKfs具有一定的滞后性，因此为了防止地图断裂，这里优化后只对关键帧的mTcwGBA做更新
+ *      3. 这时，地图中具有mTcwGBA的，一定产生了优化，而没有mTcwGBA的一定没有参与优化
+ * @param vpKfs         输入的关键帧
+ * @param vpMps         输入的地图点
+ * @param nIteration    输入的迭代次数
+ * @param bStopFlag     输入的停止标志
+ * @param bUseRk        输入的核函数标识
+ */
+void Optimizer::globalOptimization(const std::vector<KeyFramePtr> &vpKfs, const std::vector<MapPointPtr> &vpMps,
+                                   int nIteration, bool *bStopFlag, bool bUseRk) {
+    g2o::SparseOptimizer optimizer;
+    auto lm = new g2o::OptimizationAlgorithmLevenberg(std::make_unique<BSSE3>(std::make_unique<LSSE3Eigen>()));
+    optimizer.setAlgorithm(lm);
+    if (bStopFlag)
+        optimizer.setForceStopFlag(bStopFlag);
+
+    std::size_t nMaxKfID = KeyFrame::getMaxID();
+    std::unordered_map<KeyFrame::SharedPtr, g2o::VertexSE3Expmap *> mpFrames;
+    std::unordered_map<MapPoint::SharedPtr, g2o::VertexPointXYZ *> mpLandmarks;
+
+    for (auto pkf : vpKfs) {
+        if (!pkf || pkf->isBad())
+            continue;
+        cv::Mat Rcw, tcw;
+        pkf->getPose(Rcw, tcw);
+        auto pVertex = new g2o::VertexSE3Expmap();
+        std::size_t nFId = pkf->getID();
+        pVertex->setId(nFId);
+        pVertex->setEstimate(Converter::ConvertTcw2SE3(Rcw, tcw));
+        pVertex->setFixed(nFId == 0);
+        optimizer.addVertex(pVertex);
+        mpFrames.insert({pkf, pVertex});
+    }
+
+    int nEdgeID = 0;
+    for (auto pMp : vpMps) {
+        if (!pMp || pMp->isBad())
+            continue;
+        auto pVertex = new g2o::VertexPointXYZ();
+        pVertex->setId(pMp->getID() + nMaxKfID + 1);
+        pVertex->setMarginalized(true);
+        pVertex->setEstimate(Converter::ConvertPw2Vector3(pMp->getPos()));
+        optimizer.addVertex(pVertex);
+        mpLandmarks.insert({pMp, pVertex});
+        auto mObservations = pMp->getObservation();
+        for (auto &obs : mObservations) {
+            auto pKf = obs.first.lock();
+            if (!pKf || pKf->isBad())
+                continue;
+            auto iter = mpFrames.find(pKf);
+            if (iter == mpFrames.end())
+                continue;
+            auto pFrame = iter->second;
+            auto &kp = pKf->getLeftKeyPoint(obs.second);
+            auto &rightU = pKf->getRightU(obs.second);
+            if (rightU > 0) {
+                auto pEdgeStereo = new g2o::EdgeStereoSE3ProjectXYZ();
+                pEdgeStereo->fx = Camera::mfFx;
+                pEdgeStereo->fy = Camera::mfFy;
+                pEdgeStereo->cx = Camera::mfCx;
+                pEdgeStereo->cy = Camera::mfCy;
+                pEdgeStereo->bf = Camera::mfBf;
+                pEdgeStereo->setId(nEdgeID++);
+                pEdgeStereo->setVertex(0, pVertex);
+                pEdgeStereo->setVertex(1, pFrame);
+                pEdgeStereo->setMeasurement(Eigen::Vector3d(kp.pt.x, kp.pt.y, rightU));
+                pEdgeStereo->setInformation(Eigen::Matrix3d::Identity() * pKf->getScaledFactorInv2(kp.octave));
+                if (bUseRk) {
+                    auto rk = new g2o::RobustKernelHuber();
+                    rk->setDelta(deltaStereo);
+                    pEdgeStereo->setRobustKernel(rk);
+                }
+                optimizer.addEdge(pEdgeStereo);
+            } else {
+                auto pEdgeMono = new g2o::EdgeSE3ProjectXYZ();
+                pEdgeMono->fx = Camera::mfFx;
+                pEdgeMono->fy = Camera::mfFy;
+                pEdgeMono->cx = Camera::mfCx;
+                pEdgeMono->cy = Camera::mfCy;
+                pEdgeMono->setId(nEdgeID++);
+                pEdgeMono->setVertex(0, pVertex);
+                pEdgeMono->setVertex(1, pFrame);
+                pEdgeMono->setMeasurement(Eigen::Vector2d(kp.pt.x, kp.pt.y));
+                pEdgeMono->setInformation(Eigen::Matrix2d::Identity() * pKf->getScaledFactorInv2(kp.octave));
+                if (bUseRk) {
+                    auto rk = new g2o::RobustKernelHuber();
+                    rk->setDelta(deltaMono);
+                    pEdgeMono->setRobustKernel(rk);
+                }
+                optimizer.addEdge(pEdgeMono);
+            }
+        }
+    }
+    optimizer.initializeOptimization(0);
+    optimizer.optimize(nIteration);
+
+    for (auto &item : mpFrames) {
+        auto pkf = item.first;
+        auto pVertex = item.second;
+        pkf->mTcwGBA = Converter::ConvertSE32Tcw(pVertex->estimate());
+    }
+
+    for (auto &item : mpLandmarks) {
+        auto pMp = item.first;
+        auto pVertex = item.second;
+        pMp->mPGBA = Converter::ConvertVector32Pw(pVertex->estimate());
+    }
 }
 
 /// 将SIM3Ret类型转换为g2o::Sim3类型
@@ -1129,6 +969,15 @@ Sim3Ret Converter::ConvertG2o2Sim3(const g2o::Sim3 &Scm) {
     Rqp.convertTo(Sqp.mRqp, CV_32F);
     tqp.convertTo(Sqp.mtqp, CV_32F);
     return Sqp;
+}
+
+/// 将Rcw的cv::Mat类型转换为Eigen::Quaternionf类型
+Eigen::Quaternionf Converter::ConvertCV2Eigen(const cv::Mat &Rcw){
+    Eigen::Matrix3f RcwE;
+    cv::cv2eigen(Rcw, RcwE);
+    Eigen::Quaternionf Qcw(RcwE);
+    Qcw.normalize();
+    return Qcw;
 }
 
 /// Optimizer的静态变量

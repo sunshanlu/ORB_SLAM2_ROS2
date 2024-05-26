@@ -9,9 +9,14 @@
 namespace ORB_SLAM2_ROS2 {
 class Map;
 
+struct MapPointInfo {
+    std::size_t mnRefKFid;
+    int mnRefFeatID;
+};
+
 class MapPoint {
     friend class Map;
-
+    friend std::ostream &operator<<(std::ostream &os, const MapPoint &mp);
 public:
     typedef std::shared_ptr<MapPoint> SharedPtr;
     typedef std::weak_ptr<Map> MapWeakPtr;
@@ -21,6 +26,9 @@ public:
     typedef std::shared_ptr<VirtualFrame> VirtualFramePtr;
     typedef std::map<KeyFrameWeakPtr, std::size_t, KeyFrame::WeakCompareFunc> Observations;
 
+    /// 从流中读取地图信息
+    bool readFromStream(std::istream &is, MapPointInfo &info);
+
     /// 检查地图点是否合格
     bool checkMapPoint(KeyFramePtr pkf1, KeyFramePtr pkf2, const std::size_t &nFeatId1, const std::size_t &nFeatId2);
 
@@ -29,6 +37,16 @@ public:
 
     /// 由普通帧构造
     static MapPoint::SharedPtr create(cv::Mat mP3dW);
+
+    /// 基于输入流的构造
+    static MapPoint::SharedPtr create(std::istream &ifs, MapPointInfo &info, bool &notEof) {
+        std::size_t nMaxID = 0;
+        auto ptr = MapPoint::SharedPtr(new MapPoint(ifs, info, notEof));
+        if (ptr->getID() > nMaxID) {
+            mnNextId = nMaxID + 1;
+        }
+        return ptr;
+    }
 
     /// 地图点添加观测信息
     void addObservation(KeyFramePtr pkf, std::size_t featId);
@@ -70,7 +88,7 @@ public:
     }
 
     /// 设置观测方向
-    void setViewDirection(cv::Mat viewDirection){
+    void setViewDirection(cv::Mat viewDirection) {
         std::unique_lock<std::mutex> lock(mMutexView);
         viewDirection.copyTo(mViewDirection);
     }
@@ -248,6 +266,9 @@ private:
     /// 用于普通帧构造的临时地图点
     MapPoint(cv::Mat mP3d);
 
+    /// 基于输入流的构造函数
+    MapPoint(std::istream &ifs, MapPointInfo &info, bool &notEof);
+
     static unsigned int mnNextId;   ///< 下一个地图点的id
     unsigned int mId;               ///< this的地图点id
     cv::Mat mPoint3d;               ///< this的地图点3d坐标（世界坐标系下）
@@ -265,7 +286,6 @@ private:
     float mnMaxDistance;            ///< 最大匹配距离
     float mnMinDistance;            ///< 最小匹配距离
     KeyFrameWeakPtr mpRefKf;        ///< 地图点的参考关键帧
-    bool mbRefBad = false;          ///< 参考关键帧是否失效
     std::size_t mnRefFeatID;        ///< 参考关键帧的ORB特征点索引
     int mnMatchesInTrack = 0;       ///< 在跟踪过程中，被匹配成功的
     int mnInliersInTrack = 0;       ///< 在跟踪过程中，经过优化后还是内点的
@@ -278,5 +298,10 @@ private:
 
 public:
     bool mbIsLocalMp = false; ///< 是否在跟踪线程的局部地图中
+    cv::Mat mPGBA;            ///< 全局BA优化后的位置
 };
+
+/// 将地图点信息输出到流中
+std::ostream &operator<<(std::ostream &os, const MapPoint &mp);
+
 } // namespace ORB_SLAM2_ROS2

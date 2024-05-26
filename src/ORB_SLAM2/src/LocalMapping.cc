@@ -42,7 +42,7 @@ KeyFrame::SharedPtr LocalMapping::getNewKeyFrame() {
  *
  */
 void LocalMapping::run() {
-    while (1) {
+    while (!isFinished()) {
         if (!isStop()) {
             runOnce();
             std::this_thread::sleep_for(3ms);
@@ -69,40 +69,18 @@ void LocalMapping::runOnce() {
     setAccpetKF(false);
     auto pkf = getNewKeyFrame();
     if (pkf) {
-        // if (pkf->getID() == 0) {
-        //     auto vMps = pkf->getMapPoints();
-        //     for (auto &pMp : vMps) {
-        //         if (pMp && !pMp->isBad())
-        //             mlpAddedMPs.push_back(pMp);
-        //     }
-        // }
         processNewKeyFrame(pkf);
-        // std::cout << "处理完成新关键帧" << std::endl;
         cullingMapPoints();
-        // std::cout << "删除完成地图点" << std::endl;
-
-        // std::cout << "最近添加地图点数目：" << mlpAddedMPs.size() << std::endl;
-        // std::cout << "关键帧数目：" << mqpKeyFrames.size() << std::endl;
-        // std::cout << "未处理地图点数目：" << mmUnprocessMps.size() << std::endl;
-
         createNewMapPoints();
-        // std::cout << "创建新地图点成功" << std::endl;
         if (isCompleted()) {
-            // std::cout << "开始地图点的融合" << std::endl;
             fuseMapPoints();
-            // std::cout << "地图点融合完成" << std::endl;
         }
-        // TODO 为了回环闭合测试
         if (isCompleted() && !isRequestStop()) {
             setAbortBA(false);
-            if (mpMap->keyFramesInMap() > 2) {
-                // std::cout << "开始优化局部地图" << std::endl;
+            if (mpMap->keyFramesInMap() > 2)
                 Optimizer::OptimizeLocalMap(mpCurrKeyFrame, mbAbortBA);
-                // std::cout << "优化局部地图成功" << std::endl;
-            }
-            // std::cout << "开始删除关键帧" << std::endl;
+
             cullingKeyFrames();
-            // std::cout << "删除关键帧成功" << std::endl;
         }
         if (mpLoopCloser)
             mpLoopCloser->insertKeyFrame(mpCurrKeyFrame);
@@ -182,7 +160,7 @@ void LocalMapping::createNewMapPoints() {
     mpCurrKeyFrame->getPose(R1w, t1w);
     const auto &depths1 = mpCurrKeyFrame->getDepth();
     const auto &rightUs1 = mpCurrKeyFrame->getRightU();
-    
+
     /// 处理关键帧之间产生的新地图点
     for (auto match : matches) {
         const auto &kps2 = match.first->getLeftKeyPoints();
@@ -191,7 +169,6 @@ void LocalMapping::createNewMapPoints() {
         cv::Mat R2w, _;
         match.first->getPose(R2w, _);
 
-        
         for (auto &m : match.second) {
             auto pCurrMp = mpCurrKeyFrame->getMapPoint(m.queryIdx);
             if (pCurrMp && !pCurrMp->isBad() && pCurrMp->isInMap())
@@ -216,7 +193,6 @@ void LocalMapping::createNewMapPoints() {
             if (cosTheta0 < cosThetaStereo && cosTheta0 > 0 && (bStereo1 || bStereo2 || cosTheta0 < 0.9998)) {
                 cv::Mat p3dW = triangulate(mpCurrKeyFrame, match.first, kp1, kp2);
                 if (!p3dW.empty()) {
-                    // std::cout << p3dW.t() << std::endl;
                     pMp = MapPoint::create(p3dW);
                 }
             } else if (bStereo1 && cosTheta1 < cosTheta2) {
@@ -260,7 +236,6 @@ void LocalMapping::createNewMapPoints() {
             mlpAddedMPs.push_back(item.second);
         }
     }
-    // std::cout << "处理的本身产生的地图点数目为: " << n << std::endl;
 }
 
 /**
@@ -372,16 +347,12 @@ void LocalMapping::fuseMapPoints() {
     std::copy_if(sTargetMps.begin(), sTargetMps.end(), std::back_inserter(vTargetMps),
                  [&sNoMps, &sNoMpsEnd](MapPoint::SharedPtr pMp) { return sNoMps.find(pMp) == sNoMpsEnd; });
     ORBMatcher matcher(0.6, true);
-    {
-        int nFuse = matcher.fuse(mpCurrKeyFrame, vTargetMps, mpMap);
-        // std::cout << "正向融合成功" << std::endl;
-    }
+    int nFuse = matcher.fuse(mpCurrKeyFrame, vTargetMps, mpMap);
     int nFuseInv = 0;
     for (auto &pkf : sTargetKfs)
         nFuseInv += matcher.fuse(pkf, mpCurrKeyFrame, mpMap);
-    // std::cout << "反向融合成功" << std::endl;
+
     KeyFrame::updateConnections(mpCurrKeyFrame);
-    // std::cout << "更新连接成功" << std::endl;
 }
 
 /**
@@ -544,6 +515,9 @@ void LocalMapping::findParent(std::set<KeyFrameWeak, KeyFrame::WeakCompareFunc> 
  * @return false        不冗余
  */
 bool LocalMapping::judgeKeyFrame(KeyFramePtr &pkf, const MapPointDB &mapPointDB) {
+    if (pkf->getID() == 0)
+        return false;
+
     auto vpMapPoints = pkf->getMapPoints();
     auto &vKeyPoints = pkf->getLeftKeyPoints();
     int nMpNum = 0, nBad = 0;

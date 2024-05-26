@@ -1,3 +1,5 @@
+#include <sstream>
+
 #include "ORB_SLAM2/KeyFrame.h"
 #include "ORB_SLAM2/MapPoint.h"
 
@@ -105,9 +107,7 @@ KeyFrame::SharedPtr KeyFrame::updateConnections() {
  * @param child 输入的待更新连接权重的关键帧
  */
 void KeyFrame::updateConnections(SharedPtr child) {
-    // std::cout << "进入更新连接函数" << std::endl;
     SharedPtr parent = child->updateConnections();
-    // std::cout << "更新连接部分成功" << std::endl;
     if (!parent || parent->getID() > child->getID())
         return;
     if (child->isParent()) {
@@ -197,4 +197,269 @@ KeyFrame::WeakCompareFunc KeyFrame::weakCompare = [](KeyFrame::WeakPtr p1, KeyFr
         p2Id = sharedP2->getID();
     return p1Id > p2Id;
 };
+
+/**
+ * @brief 从流中读取关键帧信息
+ *
+ * @param is        输入的输入流
+ * @param kfInfo    输出的KeyFrameInfo
+ */
+bool KeyFrame::readFromStream(std::istream &is, KeyFrameInfo &kfInfo) {
+    std::string lineStr;
+    std::stringstream streamStr;
+
+    if (!mbScaled) {
+        mbScaled = true;
+        if (!getline(is, lineStr))
+            return false;
+        streamStr << lineStr;
+        streamStr >> mnNextId;
+        float scale;
+        while (streamStr >> scale)
+            mvfScaledFactors.push_back(scale);
+    }
+
+    streamStr.clear();
+    if (!getline(is, lineStr))
+        return false;
+    streamStr << lineStr;
+    streamStr >> mnId >> mfMaxU >> mfMaxV >> mfMinU >> mfMinV;
+
+    streamStr.clear();
+    getline(is, lineStr);
+    streamStr << lineStr;
+    while (1) {
+        cv::KeyPoint kp;
+        float rightU, depth;
+        streamStr >> kp.pt.x >> kp.pt.y >> kp.octave >> kp.angle >> rightU >> depth;
+        if (!streamStr)
+            break;
+        mvFeatsLeft.push_back(kp);
+        mvFeatsRightU.push_back(rightU);
+        mvDepths.push_back(depth);
+    }
+
+    streamStr.clear();
+    getline(is, lineStr);
+    streamStr << lineStr;
+    while (1) {
+        cv::Mat Desc(1, 32, CV_8U);
+        for (int i = 0; i < 32; ++i) {
+            int val;
+            streamStr >> val;
+            Desc.at<uchar>(i) = val;
+        }
+        if (!streamStr)
+            break;
+        mvLeftDescriptor.push_back(Desc);
+    }
+
+    streamStr.clear();
+    getline(is, lineStr);
+    streamStr << lineStr;
+    while (1) {
+        unsigned int worldID;
+        double worldValue;
+        streamStr >> worldID >> worldValue;
+        if (!streamStr)
+            break;
+        mBowVec.insert({worldID, worldValue});
+    }
+
+    streamStr.clear();
+    getline(is, lineStr);
+    streamStr << lineStr;
+    while (1) {
+        unsigned int NodeID;
+        std::vector<unsigned int> FeaturesID;
+        std::size_t num;
+        streamStr >> NodeID >> num;
+        for (std::size_t idx = 0; idx < num; ++idx) {
+            unsigned int id;
+            streamStr >> id;
+            FeaturesID.push_back(id);
+        }
+        if (!streamStr)
+            break;
+        mFeatVec.insert({NodeID, FeaturesID});
+    }
+
+    streamStr.clear();
+    getline(is, lineStr);
+    streamStr << lineStr;
+    cv::Mat Rcw(3, 3, CV_32F), tcw(3, 1, CV_32F);
+    for (int i = 0; i < 3; ++i)
+        for (int j = 0; j < 3; ++j)
+            streamStr >> Rcw.at<float>(i, j);
+    for (int i = 0; i < 3; ++i)
+        streamStr >> tcw.at<float>(i);
+    setPose(Rcw, tcw);
+
+    streamStr.clear();
+    getline(is, lineStr);
+    streamStr << lineStr;
+    while (1) {
+        int weight;
+        std::size_t id;
+        streamStr >> id >> weight;
+        if (!streamStr)
+            break;
+        kfInfo.mmAllConnected.insert({id, weight});
+    }
+
+    streamStr.clear();
+    getline(is, lineStr);
+    streamStr << lineStr;
+    while (1) {
+        std::size_t id;
+        streamStr >> id;
+        if (!streamStr)
+            break;
+        kfInfo.mvChildren.push_back(id);
+    }
+
+    streamStr.clear();
+    getline(is, lineStr);
+    streamStr << lineStr;
+    while (1) {
+        std::size_t id;
+        streamStr >> id;
+        if (!streamStr)
+            break;
+        kfInfo.mvLoopEdges.push_back(id);
+    }
+
+    streamStr.clear();
+    getline(is, lineStr);
+    streamStr << lineStr;
+    while (1) {
+        long id;
+        streamStr >> id;
+        if (!streamStr)
+            break;
+        kfInfo.mvMapPoints.push_back(id);
+    }
+    return true;
+}
+
+/**
+ * @brief 关键帧的信息保存
+ *
+ * @param os 输入的输出流
+ * @param kf 输入的关键帧
+ * @return std::ostream&
+ */
+std::ostream &operator<<(std::ostream &os, const KeyFrame &kf) {
+    std::map<std::size_t, int> mAllConnected; ///< mmConnectedKfs
+    std::vector<std::size_t> vConnected;      ///< mlpConnectedKfs
+    std::vector<int> vWeights;                ///< mlnConnectedWeights
+    std::vector<std::size_t> vChildren;       ///< mspChildren
+    std::vector<std::size_t> vLoopEdges;      ///< mvpLoopEdges
+    std::vector<long> vMapPoints;             ///< mvpMapPoints
+    for (auto &it : kf.mmConnectedKfs) {
+        auto pKf = it.first.lock();
+        if (pKf && !pKf->isBad())
+            mAllConnected.insert({pKf->getID(), it.second});
+    }
+    auto kfIter = kf.mlpConnectedKfs.begin();
+    auto wIter = kf.mlnConnectedWeights.begin();
+    while (kfIter != kf.mlpConnectedKfs.end() && wIter != kf.mlnConnectedWeights.end()) {
+        auto pKf = (*kfIter).lock();
+        if (pKf && !pKf->isBad()) {
+            vConnected.push_back(pKf->getID());
+            vWeights.push_back(*wIter);
+        }
+        ++kfIter;
+        ++wIter;
+    }
+    for (auto &ChildWeak : kf.mspChildren) {
+        auto child = ChildWeak.lock();
+        if (child && !child->isBad())
+            vChildren.push_back(child->getID());
+    }
+    for (auto &pLoopWeak : kf.mvpLoopEdges) {
+        auto pLoopKf = pLoopWeak.lock();
+        if (pLoopKf && !pLoopKf->isBad())
+            vLoopEdges.push_back(pLoopKf->getID());
+    }
+    for (auto &pMp : kf.mvpMapPoints) {
+        if (pMp && !pMp->isBad())
+            vMapPoints.push_back(pMp->getID());
+        else
+            vMapPoints.push_back(-1);
+    }
+    if (kf.mbScaled) {
+        os << kf.mnNextId << " ";
+        for (auto &scale : kf.mvfScaledFactors) {
+            os << scale << " ";
+        }
+        kf.mbScaled = false;
+        os << std::endl;
+    }
+    os << kf.mnId << " " << kf.mfMaxU << " " << kf.mfMaxV << " " << kf.mfMinU << " " << kf.mfMinV << std::endl;
+
+    std::size_t nKp = kf.mvFeatsLeft.size();
+    for (std::size_t idx = 0; idx < nKp; ++idx) {
+        auto &kp = kf.mvFeatsLeft[idx];
+        os << kp.pt.x << " " << kp.pt.y << " " << kp.octave << " " << kp.angle << " " << kf.mvFeatsRightU[idx] << " "
+           << kf.mvDepths[idx] << " ";
+    }
+    os << std::endl;
+
+    for (std::size_t idx = 0; idx < nKp; ++idx) {
+        cv::Mat Desc = kf.mvLeftDescriptor[idx];
+        for (std::size_t jdx = 0; jdx < 32; ++jdx)
+            os << (int)Desc.at<uchar>(jdx) << " ";
+    }
+    os << std::endl;
+
+    for (auto &item : kf.mBowVec)
+        os << item.first << " " << item.second << " ";
+    os << std::endl;
+
+    for (auto &item : kf.mFeatVec) {
+        os << item.first << " " << item.second.size() << " ";
+        for (auto &id : item.second)
+            os << id << " ";
+    }
+    os << std::endl;
+
+    for (int i = 0; i < 3; ++i)
+        for (int j = 0; j < 3; ++j)
+            os << kf.mRcw.at<float>(i, j) << " ";
+    for (int i = 0; i < 3; ++i)
+        os << kf.mtcw.at<float>(i) << " ";
+    os << std::endl;
+
+    for (auto &item : mAllConnected)
+        os << item.first << " " << item.second << " ";
+    os << std::endl;
+
+    for (auto &item : vChildren)
+        os << item << " ";
+    os << std::endl;
+
+    for (auto &item : vLoopEdges)
+        os << item << " ";
+    os << std::endl;
+
+    for (auto &item : vMapPoints)
+        os << item << " ";
+    os << std::endl;
+
+    return os;
+}
+
+/// 基于输入流的构造函数
+KeyFrame::KeyFrame(std::istream &ifs, KeyFrameInfo &kfInfo, bool &notEof)
+    : mspChildren(weakCompare)
+    , mmConnectedKfs(weakCompare) {
+    mTcw = cv::Mat::eye(4, 4, CV_32F);
+    mTwc = cv::Mat::eye(4, 4, CV_32F);
+    notEof = readFromStream(ifs, kfInfo);
+    if (!notEof)
+        return;
+    VirtualFrame::initGrid();
+}
+
 } // namespace ORB_SLAM2_ROS2

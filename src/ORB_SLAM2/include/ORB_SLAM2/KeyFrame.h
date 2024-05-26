@@ -9,9 +9,17 @@
 namespace ORB_SLAM2_ROS2 {
 class Map;
 
+/// 保存关键帧之间，关键帧和地图点之间的关系
+struct KeyFrameInfo {
+    std::map<std::size_t, int> mmAllConnected;
+    std::vector<std::size_t> mvChildren;
+    std::vector<std::size_t> mvLoopEdges;
+    std::vector<long> mvMapPoints;
+};
+
 class KeyFrame : public VirtualFrame {
-    friend class ORBMatcher;
     friend class Map;
+    friend std::ostream &operator<<(std::ostream &os, const KeyFrame &kf);
 
 public:
     typedef std::weak_ptr<KeyFrame> WeakPtr;
@@ -25,6 +33,14 @@ public:
         ++mnNextId;
         return pKframe;
     }
+
+    static SharedPtr create(std::istream &is, KeyFrameInfo &kfInfo, bool &notEof) {
+        SharedPtr pKframe = SharedPtr(new KeyFrame(is, kfInfo, notEof));
+        return pKframe;
+    }
+
+    /// 在流中读取信息
+    bool readFromStream(std::istream &is, KeyFrameInfo &kfInfo);
 
     /// 获取关键帧ID
     std::size_t getID() const { return mnId; }
@@ -176,6 +192,8 @@ private:
         mnId = mnNextId;
     }
 
+    KeyFrame(std::istream &ifs, KeyFrameInfo &kfInfo, bool &isEof);
+
     static std::size_t mnNextId;                    ///< 下一个关键帧的id
     std::size_t mnId;                               ///< 当前关键帧的id
     bool mbIsInMap = false;                         ///< 是否在地图中
@@ -196,6 +214,11 @@ private:
 
 public:
     static WeakCompareFunc weakCompare; ///< 关键帧弱指针比较函数
+    cv::Mat mTcwGBA;                    ///< 全局BA优化后的位姿
+    cv::Mat mTcwBefGBA;                 ///< 全局BA优化前的位姿
 };
+
+/// 将关键帧信息输出到流中
+std::ostream &operator<<(std::ostream &os, const KeyFrame &kf);
 
 } // namespace ORB_SLAM2_ROS2

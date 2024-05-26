@@ -7,6 +7,7 @@
 #include <DBoW3/DBoW3.h>
 #include <rclcpp/rclcpp.hpp>
 
+#include "Camera.h"
 #include "ORBExtractor.h"
 #include "ORBMatcher.h"
 
@@ -27,16 +28,24 @@ public:
     typedef std::shared_ptr<MapPoint> MapPointPtr;
     typedef std::shared_ptr<VirtualFrame> SharedPtr;
 
-    VirtualFrame(unsigned width, unsigned height)
-        : mnMaxU(width)
-        , mnMaxV(height) {
+    VirtualFrame(unsigned width, unsigned height, VocabPtr pVoc)
+        : mpVoc(pVoc) {
+        cv::KeyPoint p0(0, 0, 1);
+        cv::KeyPoint p1(width, height, 1);
+        std::vector<cv::KeyPoint> bound{p0, p1};
+        Camera::undistortPoints(bound);
+        mfMinU = bound[0].pt.x;
+        mfMinV = bound[0].pt.y;
+        mfMaxU = bound[1].pt.x;
+        mfMaxV = bound[1].pt.y;
         mTcw = cv::Mat::eye(4, 4, CV_32F);
         mTwc = cv::Mat::eye(4, 4, CV_32F);
     }
 
+    VirtualFrame();
+
     VirtualFrame(const VirtualFrame &other)
         : mvFeatsLeft(other.mvFeatsLeft)
-        , mvFeatsRight(other.mvFeatsRight)
         , mvDepths(other.mvDepths)
         , mvFeatsRightU(other.mvFeatsRightU)
         , mvpMapPoints(other.mvpMapPoints)
@@ -45,9 +54,12 @@ public:
         , mFeatVec(other.mFeatVec)
         , mGrids(other.mGrids)
         , mpRefKF(other.mpRefKF)
-        , mnMaxU(other.mnMaxU)
-        , mnMaxV(other.mnMaxV)
-        , mnID(other.mnID) {
+        , mfMaxU(other.mfMaxU)
+        , mfMaxV(other.mfMaxV)
+        , mfMinU(other.mfMinU)
+        , mfMinV(other.mfMinV)
+        , mnID(other.mnID)
+        , mpVoc(other.mpVoc) {
 
         // 对cv::Mat类型的数据进行深拷贝
         std::vector<cv::Mat> leftDesc(other.mvLeftDescriptor.size()), rightDesc(other.mRightDescriptor.size());
@@ -66,6 +78,9 @@ public:
         other.mTcw.copyTo(mTcw);
         other.mTwc.copyTo(mTwc);
     }
+
+    /// 初始化网格
+    void initGrid();
 
     /// 获取某一个特征点的地图点
     cv::Mat unProject(std::size_t idx);
@@ -135,8 +150,6 @@ public:
         cv::Mat pose = cv::Mat::zeros(4, 4, CV_32F);
         Rcw.copyTo(pose.rowRange(0, 3).colRange(0, 3));
         tcw.copyTo(pose.rowRange(0, 3).col(3));
-        // std::cout << pose.at<float>(0, 0) << std::endl;
-        // std::cout << pose << std::endl;
         setPose(pose);
     }
 
@@ -226,7 +239,7 @@ public:
 
     /// 判断uv点是否在图像范围内
     bool isInImage(const cv::Point2f &uv) {
-        if (uv.x < mnMaxU && uv.y < mnMaxV && uv.x > mnMinU && uv.y > mnMinV)
+        if (uv.x < mfMaxU && uv.y < mfMaxV && uv.x > mfMinU && uv.y > mfMinV)
             return true;
         return false;
     }
@@ -246,7 +259,6 @@ protected:
     bool mbBowComputed = false;                 ///< 是否计算了BOW向量
     DBoW3::BowVector mBowVec;                   ///< 左图的BOW向量
     DBoW3::FeatureVector mFeatVec;              ///< 左图的特征向量
-    static std::string msVoc;                   ///< 字典词袋路径
     mutable std::mutex mPoseMutex;              ///< 位姿互斥锁
     cv::Mat mTcw, mTwc;                         ///< 帧位姿
     cv::Mat mRcw, mRwc;                         ///< 位姿的旋转矩阵
@@ -261,11 +273,11 @@ protected:
     static std::size_t mnNextID;                ///< 下一帧ID
 
 public:
-    static VocabPtr mpVoc; ///< 字典词袋
-    unsigned mnMaxU;       ///< 去畸变后的最大宽度
-    unsigned mnMaxV;       ///< 去畸变后的最大高度
-    unsigned mnMinU = 0;   ///< 去畸变后的最小宽度
-    unsigned mnMinV = 0;   ///< 去畸变后的最小高度
+    VocabPtr mpVoc; ///< 字典词袋
+    float mfMaxU;   ///< 去畸变后的最大宽度
+    float mfMaxV;   ///< 去畸变后的最大高度
+    float mfMinU;   ///< 去畸变后的最小宽度
+    float mfMinV;   ///< 去畸变后的最小高度
 };
 
 /// 普通帧
@@ -277,15 +289,24 @@ public:
     typedef std::shared_ptr<Frame> SharedPtr;
     typedef std::shared_ptr<KeyFrame> KeyFramePtr;
 
-    /// 普通帧的工厂模式，用于普通帧的创建
-    static Frame::SharedPtr create(cv::Mat leftImg, cv::Mat rightImg, int nFeatures, const std::string &briefFp,
-                                   int maxThresh, int minThresh) {
-        Frame *f = new Frame(leftImg, rightImg, nFeatures, briefFp, maxThresh, minThresh);
+    /// 普通帧的工厂模式，用于普通双目帧的创建
+    static Frame::SharedPtr createStereo(cv::Mat leftImg, cv::Mat rightImg, int nFeatures, const std::string &briefFp,
+                                         int maxThresh, int minThresh, VocabPtr pVoc, int nLevels, float scale) {
+        Frame *f = new Frame(leftImg, rightImg, nFeatures, briefFp, maxThresh, minThresh, pVoc, nLevels, scale);
         Frame::SharedPtr pFrame(f);
         ORBMatcher::SharedPtr mpMatcher = std::make_shared<ORBMatcher>();
         pFrame->mnN = mpMatcher->searchByStereo(pFrame);
         ++mnNextID;
         return pFrame;
+    }
+
+    /// 普通帧的工厂模式，用于深度帧的创建
+    static Frame::SharedPtr createRGBD(cv::Mat colorImg, cv::Mat depthImg, int nFeatures, const std::string &briefF,
+                                       int maxThresh, int minThresh, VocabPtr pVoc, float dScale, int nLevels,
+                                       float scale) {
+        Frame *f = new Frame(colorImg, depthImg, nFeatures, briefF, maxThresh, minThresh, pVoc, dScale, nLevels, scale);
+        ++mnNextID;
+        return Frame::SharedPtr(f);
     }
 
     Frame(const Frame &) = delete;
@@ -315,11 +336,16 @@ public:
     KeyFramePtr getRefKF();
 
 private:
-    // 帧的构造函数
-    Frame(cv::Mat leftImg, cv::Mat rightImg, int nFeatures, const std::string &briefFp, int maxThresh, int minThresh);
+    // 双目帧的构造函数
+    Frame(cv::Mat leftImg, cv::Mat rightImg, int nFeatures, const std::string &briefFp, int maxThresh, int minThresh,
+          VocabPtr pVoc, int nLevels, float scale);
 
-    cv::Mat mLeftIm, mRightIm;                ///< 左右图
+    // 深度相机的构造函数
+    Frame(cv::Mat colorImg, cv::Mat depthImg, int nFeatures, const std::string &briefFp, int maxThresh, int minThresh,
+          VocabPtr pVoc, float dScale, int nLevels, float scale);
+
     int mnN;                                  ///< 帧中有深度的地图点
+    cv::Mat mLeftIm, mRightIm;                ///< 左右图
     ORBExtractor::SharedPtr mpExtractorLeft;  ///< 左图特征提取器
     ORBExtractor::SharedPtr mpExtractorRight; ///< 右图特征提取器
 };

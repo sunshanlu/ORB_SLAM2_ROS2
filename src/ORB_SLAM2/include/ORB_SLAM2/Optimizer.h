@@ -7,6 +7,7 @@
 #include <g2o/types/sim3/sim3.h>
 #include <g2o/types/slam3d/se3quat.h>
 #include <opencv2/opencv.hpp>
+#include <Eigen/Geometry>
 
 namespace ORB_SLAM2_ROS2 {
 class Frame;
@@ -34,6 +35,9 @@ public:
 
     /// 将g2o::Sim3类型转换为SIM3Ret类型
     static Sim3Ret ConvertG2o2Sim3(const g2o::Sim3 &Scm);
+
+    /// 将cv::Mat表示的位姿转换为
+    static Eigen::Quaternionf ConvertCV2Eigen(const cv::Mat &Rcw);
 };
 
 class Optimizer {
@@ -72,6 +76,10 @@ public:
     static void optimizeEssentialGraph(const LoopConnection &mLoopConnections, MapPtr mpMap, KeyFramePtr pLoopKf,
                                        KeyFramePtr pCurrKf, const int &graphTh, const KeyFrameAndSim3 &mCorrectedG2oScw,
                                        const KeyFrameAndSim3 &mNoCorrectedG2oScw, bool bFixedScale = true);
+
+    /// 全局BA优化
+    static void globalOptimization(const std::vector<KeyFramePtr> &vpKfs, const std::vector<MapPointPtr> &vpMps,
+                                   int mnIteration, bool *bStopFlag, bool bUseRk = false);
 
     /// 计算3/4分位数
     static double ComputeThirdQuartile(const std::vector<double> &data);

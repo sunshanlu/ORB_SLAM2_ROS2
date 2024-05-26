@@ -24,6 +24,7 @@ public:
     typedef std::map<MapPointPtr, std::vector<std::size_t>> MapPointDB;
     typedef std::shared_ptr<KeyFrameDB> KeyFrameDBPtr;
     typedef std::shared_ptr<LoopClosing> LoopClosingPtr;
+    typedef std::shared_ptr<LocalMapping> SharedPtr;
     /// weightDB的模版参数分别代表共视权重、子关键帧、候选父关键帧
     typedef std::multimap<std::size_t, std::pair<KeyFramePtr, KeyFramePtr>, std::greater<std::size_t>> WeightDB;
 
@@ -139,6 +140,18 @@ public:
         return mbStoped;
     }
 
+    /// 设置程序结束
+    void setFinished() {
+        std::unique_lock<std::mutex> lock(mMutexFinished);
+        mbFinished = true;
+    }
+
+    /// 判断程序是否需要结束
+    bool isFinished() const {
+        std::unique_lock<std::mutex> lock(mMutexFinished);
+        return mbFinished;
+    }
+
 private:
     /// 创建地图点数据库
     void createMpsDB(std::vector<KeyFramePtr> &vpTargetKfs, MapPointDB &mapPointDB);
@@ -162,8 +175,10 @@ private:
     mutable std::mutex mMutexAbortBA;     ///< 维护mbAbortBA的互斥锁
     mutable std::mutex mMutexRequestStop; ///< 维护mbRequestStop的互斥锁
     mutable std::mutex mMutexStoped;      ///< 维护mbStoped的互斥锁
+    mutable std::mutex mMutexFinished;    ///< 维护mbFinished的互斥锁
     bool mbRequestStop = false;           ///< 外部有请求停止的命令
     bool mbStoped = false;                ///< 局部建图线程停止的标识
+    bool mbFinished = false;              ///< 是否完成局部建图线程
     LoopClosingPtr mpLoopCloser;          ///< 闭环检测器对象
 };
 

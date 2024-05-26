@@ -1,0 +1,11 @@
+nextID scaleFactors
+mnId mpParent mnMaxU mnMaxV mnMinU mnMinV
+x y octave angle rightu depth
+mvLeftDescriptor
+bowID bowVal bowID bowVal
+nodeID nNum featID featID
+mTcw
+mmConnectedKfs
+mspChildren
+mvpLoopEdges
+mvpMapPoints

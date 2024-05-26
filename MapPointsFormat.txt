@@ -1,0 +1,3 @@
+mnId mnMaxDistance mnMinDistance mpRefKf mnRefFeatID mnMatchesInTrack mnInliersInTrack
+mPoint3d mViewDirection
+mDescriptor

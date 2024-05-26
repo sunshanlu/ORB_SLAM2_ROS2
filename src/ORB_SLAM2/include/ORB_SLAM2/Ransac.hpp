@@ -84,7 +84,7 @@ public:
         if (mnBestInliers == 0)
             return false;
         else {
-            modelRet.copyTo(mBestModelRet);
+            mBestModelRet.copyTo(modelRet);
             vnInlierIndices = mvnInlierIndices;
             return true;
         }

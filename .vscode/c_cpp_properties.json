@@ -11,7 +11,10 @@
                 "/usr/include/**",
                 "${workspaceFolder}/src/ORB_SLAM2/include",
                 "/opt/ros/foxy/include",
-                "/usr/include/eigen3"
+                "/usr/include/eigen3",
+                "/home/rookie-lu/Project/ORB-SLAM2/ORB-SLAM2-ROS2/install/Release/orb_slam2_interfaces/include",
+                "/home/rookie-lu/Project/ORB-SLAM2/ORB-SLAM2-ROS2/install/orb_slam2_interfaces/include",
+                "${workspaceFolder}/src/image_publisher/include"
             ],
             "name": "ROS",
             "intelliSenseMode": "gcc-x64",

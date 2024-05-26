@@ -101,6 +101,9 @@
         "typeindex": "cpp",
         "__errc": "cpp",
         "regex": "cpp",
-        "filesystem": "cpp"
-    }
+        "filesystem": "cpp",
+        "core": "cpp",
+        "specialfunctions": "cpp"
+    },
+    "cmake.sourceDirectory": "/home/rookie-lu/Project/ORB-SLAM2/ORB-SLAM2-ROS2/build/Debug/orb_slam2_interfaces/orb_slam2_interfaces__py"
 }

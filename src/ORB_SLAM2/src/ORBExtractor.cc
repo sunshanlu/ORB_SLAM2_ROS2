@@ -113,9 +113,9 @@ std::size_t QuadtreeNode::getFeature() {
  */
 Quadtree::Quadtree(int x, int y, const std::vector<cv::KeyPoint> &keypoints, unsigned int needNodes)
     : mnNeedNodes(needNodes) {
-    if (keypoints.size() < mnNeedNodes) {
-        throw FeatureLessError("特征点数目少于期待特征点数目，无法分裂");
-    }
+    // if (keypoints.size() < mnNeedNodes) {
+    //     throw FeatureLessError("特征点数目少于期待特征点数目，无法分裂");
+    // }
     mpRoot = std::make_shared<QuadtreeNode>(x, y, keypoints);
     mvNodes.insert(mpRoot);
     mnNodes = 1;
@@ -251,23 +251,23 @@ void ORBExtractor::initPyramid(const cv::Mat &image, int nLevels, float scaleFac
     mvBriefMat.resize(nLevels);
 
     if (!mbScaleInit) {
-        mvnFeatures.resize(nLevels, 0);
         for (int level = 0; level < nLevels; ++level)
             mvfScaledFactors.push_back(std::pow(scaleFactor, level));
-
-        float scale = 1.0f / scaleFactor;
-        int sumFeatures = 0;
-        int nfeats = cvRound(mnFeats * (1 - scale) / (1 - std::pow(scale, nLevels)));
-        for (int level = 0; level < nLevels - 1; ++level) {
-            mvnFeatures[level] = nfeats;
-            sumFeatures += nfeats;
-            nfeats = cvRound(nfeats * scale);
-        }
-        mvnFeatures[nLevels - 1] = std::max(0, mnFeats - sumFeatures);
-        mbScaleInit = true;
-        mnLevels = nLevels;
         mfScaledFactor = scaleFactor;
+        mbScaleInit = true;
     }
+
+    mvnFeatures.resize(nLevels, 0);
+    float scale = 1.0f / mfScaledFactor;
+    int sumFeatures = 0;
+    int nfeats = cvRound(mnFeats * (1 - scale) / (1 - std::pow(scale, nLevels)));
+    for (int level = 0; level < nLevels - 1; ++level) {
+        mvnFeatures[level] = nfeats;
+        sumFeatures += nfeats;
+        nfeats = cvRound(nfeats * scale);
+    }
+    mvnFeatures[nLevels - 1] = std::max(0, mnFeats - sumFeatures);
+    mnLevels = nLevels;
 
     image.copyTo(mvPyramids[0]);
     int width = image.cols, height = image.rows;

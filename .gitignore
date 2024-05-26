@@ -4,7 +4,9 @@ log/
 build/
 bin/
 lib/
+map/
 msg_gen/
+.vscode/
 srv_gen/
 msg/*Action.msg
 msg/*ActionFeedback.msg

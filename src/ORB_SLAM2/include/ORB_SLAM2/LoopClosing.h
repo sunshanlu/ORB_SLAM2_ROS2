@@ -4,6 +4,7 @@
 #include <mutex>
 #include <queue>
 #include <set>
+#include <thread>
 
 #include <opencv2/opencv.hpp>
 
@@ -52,8 +53,36 @@ public:
     /// 插入新关键帧
     void insertKeyFrame(KeyFramePtr pkf);
 
+    /// 矫正完成关键帧，运行全局BA
+    void runGlobalBA();
+
     /// 释放回环闭合线程的资源
     void release();
+
+    /// 请求回环闭合线程停止
+    void requestStop() {
+        std::unique_lock<std::mutex> lock(mMutexResStop);
+        mbResquestStop = true;
+        mbStopGBA = true;
+    }
+
+    /// 回环闭合线程是否被请求停止
+    bool isRequestStop() const {
+        std::unique_lock<std::mutex> lock(mMutexResStop);
+        return mbResquestStop;
+    }
+
+    /// 回环闭合线程是否停止
+    bool isStop() const {
+        std::unique_lock<std::mutex> lock(mMutexStop);
+        return mbStop;
+    }
+
+    /// 停止回环闭合线程
+    void stop() {
+        std::unique_lock<std::mutex> lock(mMutexStop);
+        mbStop = true;
+    }
 
 private:
     /// 判断两个组之间是否连续
@@ -70,7 +99,13 @@ private:
     MapPtr mpMap;                              ///< 地图
     LocalMappingPtr mpLocalMapper;             ///< 局部建图对象
     TrackingPtr mpTracker;                     ///< 跟踪对象
-    std::size_t mnLastLoopId = 0;              ///< 上一次回环闭合的关键帧id
+    std::size_t mnLastLoopId;                  ///< 上一次回环闭合的关键帧id
+    bool mbStopGBA;                            ///< 默认不停止全局BA
+    std::thread *mpGlobalBAThread = nullptr;   ///< 全局BA线程
+    bool mbStop;                               ///< 回环闭合线程是否停止
+    bool mbResquestStop;                       ///< 回环闭合线程是否请求停止
+    mutable std::mutex mMutexStop;             ///< 维护mbStop的互斥锁
+    mutable std::mutex mMutexResStop;          ///< 维护mbResquestStop的互斥锁
 };
 
 } // namespace ORB_SLAM2_ROS2

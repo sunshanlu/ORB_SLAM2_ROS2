@@ -1,6 +1,8 @@
-#include "ORB_SLAM2/Frame.h"
+#include <chrono>
+
 #include "ORB_SLAM2/Camera.h"
 #include "ORB_SLAM2/Error.h"
+#include "ORB_SLAM2/Frame.h"
 #include "ORB_SLAM2/KeyFrame.h"
 #include "ORB_SLAM2/MapPoint.h"
 
@@ -43,6 +45,23 @@ void Frame::showStereoMatches() const {
     cv::destroyAllWindows();
 }
 
+/// 初始化网格
+void VirtualFrame::initGrid() {
+    int rows = cvCeil((float)(mfMaxV - mfMinV) / mnGridHeight);
+    int cols = cvCeil((float)(mfMaxU - mfMinU) / mnGridWidth);
+
+    mGrids.resize(rows);
+    for (auto &grid : mGrids)
+        grid.resize(cols);
+
+    for (std::size_t idx = 0; idx < mvFeatsLeft.size(); ++idx) {
+        auto &feat = mvFeatsLeft[idx];
+        std::size_t rowIdx = cvFloor(feat.pt.y / mnGridHeight);
+        std::size_t colIdx = cvFloor(feat.pt.x / mnGridWidth);
+        mGrids[rowIdx][colIdx].push_back(idx);
+    }
+}
+
 /**
  * @brief 普通帧的构造函数
  * @details
@@ -57,15 +76,15 @@ void Frame::showStereoMatches() const {
  * @param maxThresh FAST检测的最大阈值
  * @param minThresh FAST检测的最小阈值
  */
-Frame::Frame(cv::Mat leftImg, cv::Mat rightImg, int nFeatures, const std::string &briefFp, int maxThresh, int minThresh)
+Frame::Frame(cv::Mat leftImg, cv::Mat rightImg, int nFeatures, const std::string &briefFp, int maxThresh, int minThresh,
+             VocabPtr pVoc, int nLevels, float scale)
     : mLeftIm(leftImg)
     , mRightIm(rightImg)
-    , VirtualFrame(leftImg.cols, leftImg.rows) {
-    mpExtractorLeft = std::make_shared<ORBExtractor>(mLeftIm, nFeatures, 8, 1.2, briefFp, maxThresh, minThresh);
-    mpExtractorRight = std::make_shared<ORBExtractor>(mRightIm, nFeatures, 8, 1.2, briefFp, maxThresh, minThresh);
+    , VirtualFrame(leftImg.cols, leftImg.rows, pVoc) {
+    mpExtractorLeft = std::make_shared<ORBExtractor>(mLeftIm, nFeatures, nLevels, scale, briefFp, maxThresh, minThresh);
+    mpExtractorRight =
+        std::make_shared<ORBExtractor>(mRightIm, nFeatures, nLevels, scale, briefFp, maxThresh, minThresh);
 
-    // mpExtractorLeft = std::make_shared<ORBExtractor>(mLeftIm, nFeatures, 1, 1.2, briefFp, maxThresh, minThresh);
-    // mpExtractorRight = std::make_shared<ORBExtractor>(mRightIm, nFeatures, 1, 1.2, briefFp, maxThresh, minThresh);
     if (!mbScaled) {
         mvfScaledFactors = mpExtractorLeft->getScaledFactors();
         mbScaled = true;
@@ -79,22 +98,55 @@ Frame::Frame(cv::Mat leftImg, cv::Mat rightImg, int nFeatures, const std::string
         throw ThreadError("普通帧提取特征点时线程不可joinable");
     leftThread.join();
     rightThread.join();
+    Camera::undistortPoints(mvFeatsLeft);
+
     mvpMapPoints.resize(mvFeatsLeft.size(), nullptr);
-
-    int rows = cvCeil((float)leftImg.rows / mnGridHeight);
-    int cols = cvCeil((float)leftImg.cols / mnGridWidth);
-
-    mGrids.resize(rows);
-    for (auto &grid : mGrids)
-        grid.resize(cols);
-
-    for (std::size_t idx = 0; idx < mvFeatsLeft.size(); ++idx) {
-        auto &feat = mvFeatsLeft[idx];
-        std::size_t rowIdx = cvFloor(feat.pt.y / mnGridHeight);
-        std::size_t colIdx = cvFloor(feat.pt.x / mnGridWidth);
-        mGrids[rowIdx][colIdx].push_back(idx);
-    }
+    VirtualFrame::initGrid();
     mnID = mnNextID;
+}
+
+/**
+ * @brief Construct a new Frame object
+ *
+ * @param colorImg  彩色图像
+ * @param depthImg  深度图像 (要求以m为单位)
+ * @param nFeatures 需要提取的特征数
+ * @param briefFp   BRIEF模版文件路径
+ * @param maxThresh FAST检测的最大阈值
+ * @param minThresh FAST检测的最小阈值
+ * @param pVoc      词袋模型指针
+ * @param dScale    深度图像缩放尺度
+ */
+Frame::Frame(cv::Mat colorImg, cv::Mat depthImg, int nFeatures, const std::string &briefFp, int maxThresh,
+             int minThresh, VocabPtr pVoc, float dScale, int nLevels, float scale)
+    : mLeftIm(colorImg)
+    , VirtualFrame(colorImg.cols, colorImg.rows, pVoc) {
+    depthImg.convertTo(depthImg, CV_32F);
+    depthImg /= dScale;
+    mpExtractorLeft = std::make_shared<ORBExtractor>(mLeftIm, nFeatures, nLevels, scale, briefFp, maxThresh, minThresh);
+    if (!mbScaled) {
+        mvfScaledFactors = mpExtractorLeft->getScaledFactors();
+        mbScaled = true;
+    }
+    mpExtractorLeft->extract(mvFeatsLeft, mvLeftDescriptor);
+    decltype(mvFeatsLeft) vFeatsLeftCopy(mvFeatsLeft);
+    Camera::undistortPoints(mvFeatsLeft);
+    auto FeaturesN = mvFeatsLeft.size();
+    mvpMapPoints.resize(FeaturesN, nullptr);
+    mvDepths.resize(FeaturesN, -1);
+    mvFeatsRightU.resize(FeaturesN, -1);
+    VirtualFrame::initGrid();
+    mnID = mnNextID;
+
+    for (std::size_t idx = 0; idx < FeaturesN; ++idx) {
+        const cv::KeyPoint &kp = vFeatsLeftCopy[idx];
+        const cv::KeyPoint &kpU = mvFeatsLeft[idx];
+        const float d = depthImg.at<float>(kp.pt.y, kp.pt.x);
+        if (d > 0) {
+            mvDepths[idx] = d;
+            mvFeatsRightU[idx] = kpU.pt.x - Camera::mfBf / d;
+        }
+    }
 }
 
 /**
@@ -120,7 +172,7 @@ int Frame::unProject(std::vector<MapPoint::SharedPtr> &mapPoints) {
     int nCreated = 0;
     for (std::size_t idx = 0; idx < mvFeatsLeft.size(); ++idx) {
         auto pMp = mvpMapPoints[idx];
-        if (pMp && !pMp->isBad()){
+        if (pMp && !pMp->isBad()) {
             mapPoints[idx] = pMp;
             continue;
         }
@@ -213,9 +265,9 @@ std::vector<std::size_t> VirtualFrame::findFeaturesInArea(const cv::KeyPoint &kp
     std::vector<std::size_t> vFeatures;
     radius = radius * getScaledFactor2(kp.octave);
     int minX = std::max(0, cvRound(kp.pt.x - radius));
-    int maxX = std::min((int)mnMaxU, cvRound(kp.pt.x + radius));
+    int maxX = std::min((int)mfMaxU, cvRound(kp.pt.x + radius));
     int minY = std::max(0, cvRound(kp.pt.y - radius));
-    int maxY = std::min((int)mnMaxV, cvRound(kp.pt.y + radius));
+    int maxY = std::min((int)mfMaxV, cvRound(kp.pt.y + radius));
     int minColID = cvFloor((float)minX / mnGridWidth);
     int maxColID = cvFloor((float)maxX / mnGridWidth);
     int minRowID = cvFloor((float)minY / mnGridHeight);
@@ -254,6 +306,14 @@ cv::Point2f VirtualFrame::project2UV(const cv::Mat &p3dW, bool &isPositive) {
 }
 
 /**
+ * @brief VirtualFrame的默认构造函数，供关键帧的流构造使用
+ *
+ */
+VirtualFrame::VirtualFrame()
+    : mbBowComputed(true)
+    , mnID(0) {}
+
+/**
  * @brief 参考关键帧，就是基于哪个关键帧做的位姿优化
  * @details
  *      1. 恒速模型跟踪：参考关键帧就是上一帧的参考关键帧
@@ -263,8 +323,6 @@ cv::Point2f VirtualFrame::project2UV(const cv::Mat &p3dW, bool &isPositive) {
  */
 KeyFrame::SharedPtr Frame::getRefKF() { return mpRefKF; }
 
-std::string VirtualFrame::msVoc = "/home/rookie-lu/Project/ORB-SLAM2/ORB-SLAM2-ROS2/Vocabulary/ORBvoc.txt";
-VirtualFrame::VocabPtr VirtualFrame::mpVoc = std::make_shared<DBoW3::Vocabulary>(VirtualFrame::msVoc);
 std::vector<float> VirtualFrame::mvfScaledFactors;
 bool VirtualFrame::mbScaled = false;
 std::size_t VirtualFrame::mnNextID = 0;

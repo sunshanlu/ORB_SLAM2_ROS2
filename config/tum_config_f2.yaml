@@ -1,0 +1,57 @@
+%YAML:1.0
+
+# 相机内参和畸变参数
+Camera.fx: 520.908620
+Camera.fy: 521.007327
+Camera.cx: 325.141442
+Camera.cy: 249.701764
+
+Camera.k1: 0.231222
+Camera.k2: -0.784899
+Camera.p1: -0.003257
+Camera.p2: -0.000105
+Camera.k3: 0.917205
+
+# 相机基线
+Camera.bl: 0.0767889
+
+# 相机的类型，0代表双目，1代表深度
+Camera.Type: 1
+
+Camera.DepthScale: 5208.0
+
+# 0代表灰度图，1代表RGB，2代表BGR
+Camera.Color: 1
+
+# 最大帧数和最少帧数
+MaxFrames: 30
+MinFrames: 0
+
+# 近点和远点阈值
+ThDepth: 40
+
+# ORB特征点提取参数
+ORBExtractor.nFeatures: 2000
+ORBExtractor.nInitFeatures: 1000
+ORBExtractor.nLevels: 8
+ORBExtractor.scaleFactor: 1.2
+ORBExtractor.iniThFAST: 20
+ORBExtractor.minThFAST: 7
+
+# 路径信息
+Path.Vocabulary: "/home/rookie-lu/Project/ORB-SLAM2/ORB-SLAM2-ROS2/Vocabulary/ORBvoc.txt"
+Path.BriefTemplate: "/home/rookie-lu/Project/ORB-SLAM2/ORB-SLAM2-ROS2/config/BRIEF_TEMPLATE.txt"
+Path.Map: "/home/rookie-lu/Project/ORB-SLAM2/ORB-SLAM2-ROS2/map/TUM"
+
+# 是否以仅跟踪模式启动
+OnlyTracking: 0
+
+# 是否加载或保存地图
+Map.LoadMap: 0
+Map.SaveMap: 0
+
+# 可视化参数
+Viewer.UseViewer: 1
+Viewer.Posedx: 0.2
+Viewer.Posedy: 0.1125
+Viewer.Posedz: 0.175

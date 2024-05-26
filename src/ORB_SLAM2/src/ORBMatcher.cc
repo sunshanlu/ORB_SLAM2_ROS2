@@ -818,11 +818,7 @@ float ORBMatcher::SAD(const cv::Mat &image1, const cv::Mat &image2) {
     image2.copyTo(i2);
     i1.convertTo(i1, CV_32F);
     i2.convertTo(i2, CV_32F);
-    // std::cout << image1 << std::endl;
-    // std::cout << image2 << std::endl;
-    // std::cout << i1 << std::endl;
-    // std::cout << i2 << std::endl;
-    auto one = cv::Mat::ones(2 * mnW + 1, 2 * mnW + 1, CV_32F);
+    cv::Mat one = cv::Mat::ones(2 * mnW + 1, 2 * mnW + 1, CV_32F);
     i1 = i1 - one * i1.at<float>(mnW, mnW);
     i2 = i2 - one * i2.at<float>(mnW, mnW);
     return cv::norm(i1, i2, cv::NORM_L1);
@@ -931,6 +927,8 @@ void ORBMatcher::verifyAngle(std::vector<cv::DMatch> &matches, const std::vector
         float diff = keyPoints1[dmatch.queryIdx].angle - keyPoints2[dmatch.trainIdx].angle;
         diff = diff >= 0 ? diff : 360 + diff;
         int bin = diff / (360 / mnBinNum);
+        if (bin == 30)
+            bin = 0;
         hist[bin].push_back(dmatch);
     }
     std::set<std::size_t> goodBinIds;

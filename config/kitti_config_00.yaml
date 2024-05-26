@@ -1,0 +1,54 @@
+%YAML:1.0
+
+# 相机内参和畸变参数
+Camera.fx: 718.856
+Camera.fy: 718.856
+Camera.cx: 607.1928
+Camera.cy: 185.2157
+
+Camera.k1: 0.0
+Camera.k2: 0.0
+Camera.p1: 0.0
+Camera.p2: 0.0
+
+# 相机基线
+Camera.bl: 0.537166
+
+# 相机的类型，0代表双目，1代表深度
+Camera.Type: 0
+
+# 0代表灰度图，1代表RGB，2代表BGR
+Camera.Color: 0
+
+# 最大帧数和最少帧数
+MaxFrames: 10
+MinFrames: 0
+
+# 近点和远点阈值
+ThDepth: 35
+
+# ORB特征点提取参数
+ORBExtractor.nFeatures: 3000
+ORBExtractor.nInitFeatures: 3000
+ORBExtractor.nLevels: 8
+ORBExtractor.scaleFactor: 1.2
+ORBExtractor.iniThFAST: 20
+ORBExtractor.minThFAST: 7
+
+# 路径信息
+Path.Vocabulary: "/home/rookie-lu/Project/ORB-SLAM2/ORB-SLAM2-ROS2/Vocabulary/ORBvoc.txt"
+Path.BriefTemplate: "/home/rookie-lu/Project/ORB-SLAM2/ORB-SLAM2-ROS2/config/BRIEF_TEMPLATE.txt"
+Path.Map: "/home/rookie-lu/Project/ORB-SLAM2/ORB-SLAM2-ROS2/map/KITTI"
+
+# 是否以仅跟踪模式启动
+OnlyTracking: 0
+
+# 是否加载或保存地图
+Map.LoadMap: 0
+Map.SaveMap: 0
+
+# 可视化参数
+Viewer.UseViewer: 1
+Viewer.Posedx: 0.8
+Viewer.Posedy: 0.45
+Viewer.Posedz: 0.7

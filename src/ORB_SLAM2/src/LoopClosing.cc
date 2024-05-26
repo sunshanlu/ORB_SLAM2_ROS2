@@ -1,7 +1,9 @@
-#include "ORB_SLAM2/LoopClosing.h"
+#include <rclcpp/logger.hpp>
+
 #include "ORB_SLAM2/KeyFrame.h"
 #include "ORB_SLAM2/KeyFrameDB.h"
 #include "ORB_SLAM2/LocalMapping.h"
+#include "ORB_SLAM2/LoopClosing.h"
 #include "ORB_SLAM2/Map.h"
 #include "ORB_SLAM2/MapPoint.h"
 #include "ORB_SLAM2/Optimizer.h"
@@ -17,16 +19,28 @@ LoopClosing::LoopClosing(KeyFrameDBPtr pKeyFrameDB, MapPtr pMap, LocalMappingPtr
     : mpKeyFrameDB(pKeyFrameDB)
     , mpMap(pMap)
     , mpLocalMapper(pLocalMapping)
-    , mpTracker(pTracking) {}
+    , mpTracker(pTracking)
+    , mbStop(false)
+    , mbResquestStop(false)
+    , mbStopGBA(false)
+    , mnLastLoopId(0) {}
 
 /// 回环闭合线程入口函数
 void LoopClosing::run() {
-    while (1) {
+    while (!isRequestStop()) {
         runOnce();
         if (mpCurrKeyFrame)
             mpCurrKeyFrame->setNotErased(false);
         std::this_thread::sleep_for(3ms);
     }
+    mbStopGBA = true;
+    if (mpGlobalBAThread) {
+        mpGlobalBAThread->join();
+        delete mpGlobalBAThread;
+        mpGlobalBAThread = nullptr;
+    }
+    release();
+    stop();
 }
 
 /// 循环运行一次
@@ -44,11 +58,10 @@ void LoopClosing::runOnce() {
         pCandidate->setNotErased(true);
     }
 
+    /// 计算SIM3
     Sim3Ret g2oScm, g2oScw;
     KeyFrame::SharedPtr pMatchKF;
-    // std::cout << "开始计算SIM3部分" << std::endl;
     bool isComputed = computeSim3(g2oScm, g2oScw, pMatchKF);
-    // std::cout << "完成了计算Sim3部分" << std::endl;
     for (auto &pCandidate : mvEnoughKfs) {
         if (pCandidate == pMatchKF)
             continue;
@@ -57,22 +70,91 @@ void LoopClosing::runOnce() {
     if (!isComputed)
         return;
 
-    // std::cout << mpCurrKeyFrame->getFrameID() << " 检测到回环闭合，候选关键帧为：" << pMatchKF->getFrameID()
-    //           << std::endl;
-    // std::cout << g2oScw.mRqp << std::endl;
-    // std::cout << g2oScw.mtqp << std::endl;
-    // std::cout << g2oScw.mfS << std::endl;
-    // std::cout << mpCurrKeyFrame->getPose() << std::endl;
+    RCLCPP_INFO(rclcpp::get_logger("ORB_SLAM2"), "检测到回环闭合");
     correctLoop(g2oScw, pMatchKF);
-    mpTracker->setLoopID(mpCurrKeyFrame->getFrameID());
-    mnLastLoopId = mpCurrKeyFrame->getID();
-    pMatchKF->setNotErased(false);
-    mpLocalMapper->start();
-    // todo： 运行全局BA优化
+
+    RCLCPP_INFO(rclcpp::get_logger("ORB_SLAM2"), "开始执行全局BA");
+    mbStopGBA = false;
+    mpGlobalBAThread = new std::thread(&LoopClosing::runGlobalBA, this);
 
     release();
 }
 
+void LoopClosing::runGlobalBA() {
+    auto vpOldKfs = mpMap->getAllKeyFrames();
+    auto vpOldMps = mpMap->getAllMapPoints();
+    Optimizer::globalOptimization(vpOldKfs, vpOldMps, 10, &mbStopGBA, false);
+
+    if (mbStopGBA)
+        return;
+
+    mpLocalMapper->requestStop();
+    while (!mpLocalMapper->isStop())
+        std::this_thread::sleep_for(1ms);
+
+    auto vpNewKfs = mpMap->getAllKeyFrames();
+    auto vpNewMps = mpMap->getAllMapPoints();
+
+    /// 处理全局BA后的关键帧
+    std::list<KeyFrame::SharedPtr> qToProcess(vpOldKfs.begin(), vpOldKfs.end());
+    while (!qToProcess.empty()) {
+        auto &pParent = qToProcess.front();
+        if (!pParent || pParent->isBad()) {
+            qToProcess.pop_front();
+            continue;
+        }
+        cv::Mat Twp = pParent->getPoseInv();
+        if (pParent->mTcwGBA.empty())
+            throw std::runtime_error("KeyFrame::mTcwGBA is empty");
+        auto vpChildren = pParent->getChildren();
+        for (auto &childWeak : vpChildren) {
+            auto child = childWeak.lock();
+            if (!child || child->isBad())
+                continue;
+            if (!child->mTcwGBA.empty())
+                continue;
+            cv::Mat Tcp = child->getPose() * Twp;
+            child->mTcwGBA = Tcp * pParent->mTcwGBA;
+            qToProcess.push_back(child);
+        }
+        pParent->mTcwBefGBA = pParent->getPose().clone();
+        pParent->setPose(pParent->mTcwGBA);
+        qToProcess.pop_front();
+    }
+
+    /// 处理全局BA后的地图点
+    for (auto &pMp : vpNewMps) {
+        if (!pMp || pMp->isBad())
+            continue;
+        if (!pMp->mPGBA.empty())
+            pMp->setPos(pMp->mPGBA);
+        else {
+            auto refKF = pMp->getRefKF();
+            if (!refKF || refKF->isBad()) {
+                pMp->updateNormalAndDepth();
+                refKF = pMp->getRefKF();
+                if (!refKF || refKF->isBad())
+                    continue;
+            }
+            if (refKF->mTcwBefGBA.empty()) {
+                throw std::runtime_error("mTcwBefGBA 为空");
+            }
+            cv::Mat RcwBef, tcwBef, Rwc, twc;
+            refKF->getPoseInv(Rwc, twc);
+            refKF->mTcwBefGBA.rowRange(0, 3).colRange(0, 3).copyTo(RcwBef);
+            refKF->mTcwBefGBA.rowRange(0, 3).col(3).copyTo(tcwBef);
+            cv::Mat P3dc = RcwBef * pMp->getPos() + tcwBef;
+            pMp->setPos(Rwc * P3dc + twc);
+        }
+    }
+    RCLCPP_INFO(rclcpp::get_logger("ORB_SLAM2"), "地图已经完成了更新");
+    mpLocalMapper->start();
+}
+
+/**
+ * @brief 当完成一次回环后，需要释放当前回环线程的资源
+ *
+ */
 void LoopClosing::release() {
     std::queue<KeyFramePtr> empty;
     {
@@ -244,15 +326,11 @@ bool LoopClosing::computeSim3(Sim3Ret &g2oScm, Sim3Ret &g2oScw, KeyFramePtr &pLo
             if (ret) {
                 vMatches.clear();
                 int nMatches = 0;
-                // for (const auto &ind : vIndices)
-                //     vMatches.push_back(vvMatches[idx][ind]);
                 nMatches = matcher.searchBySim3(mpCurrKeyFrame, pkfCandidate, vMatches, g2oScm, 7.5);
                 if (nMatches < 50)
                     continue;
                 int nInlier = Optimizer::OptimizeSim3(mpCurrKeyFrame, pkfCandidate, vMatches, g2oScm);
                 if (nInlier > 50) {
-                    std::cout << "nMatches: " << nMatches << std::endl;
-                    std::cout << "nInlier: " << nInlier << std::endl;
                     bComplete = true;
                     break;
                 }
@@ -279,8 +357,6 @@ bool LoopClosing::computeSim3(Sim3Ret &g2oScm, Sim3Ret &g2oScw, KeyFramePtr &pLo
     pkfCandidate->getPose(Rmw, tmw);
     Sim3Ret g2oSmw(Rmw, tmw, 1.0);
     g2oScw = g2oScm * g2oSmw;
-    std::cout << g2oScm.mRqp << std::endl;
-    std::cout << g2oScm.mtqp << std::endl;
     mvMatchedMps.clear();
     mvMatchedMps.resize(mpCurrKeyFrame->getLeftKeyPoints().size(), nullptr);
     for (const auto &m : vMatches) {
@@ -312,24 +388,23 @@ bool LoopClosing::computeSim3(Sim3Ret &g2oScm, Sim3Ret &g2oScw, KeyFramePtr &pLo
  * @return false    回环矫正失败
  */
 void LoopClosing::correctLoop(const Sim3Ret &g2oScw, const KeyFramePtr &pLoopKf) {
-    // std::cout << "回环闭合线程请求局部建图线程停止" << std::endl;
+    /// 请求局部建图线程停止
     mpLocalMapper->requestStop();
-    while (1) {
-        if (!mpLocalMapper->isStop())
-            std::this_thread::sleep_for(1ms);
-        else {
-            // std::cout << "回环闭合线程成功停止，开始矫正回环" << std::endl;
-            break;
-        }
-    }
+    while (!mpLocalMapper->isStop())
+        std::this_thread::sleep_for(1ms);
 
-    // todo 请求全局BA的停止
+    /// 请求全局BA停止
+    mbStopGBA = true;
+    if (mpGlobalBAThread) {
+        mpGlobalBAThread->detach();
+        delete mpGlobalBAThread;
+        mpGlobalBAThread = nullptr;
+    }
 
     /// 同步局部建图线程
     KeyFrame::updateConnections(mpCurrKeyFrame);
 
     /// 矫正当前关键帧组位姿
-    // std::cout << "矫正当前关键帧组位姿" << std::endl;
     KeyFrameAndSim3 correctedSim3, unCorrectedSim3;
     auto vConnectedKfs = mpCurrKeyFrame->getConnectedKfs(0);
     vConnectedKfs.push_back(mpCurrKeyFrame);
@@ -350,7 +425,6 @@ void LoopClosing::correctLoop(const Sim3Ret &g2oScw, const KeyFramePtr &pLoopKf)
         }
 
         /// 矫正当前关键帧组地图点
-        // std::cout << "矫正当前关键帧组的地图点" << std::endl;
         for (auto &pKf : vConnectedKfs) {
             const auto &Siw = unCorrectedSim3[pKf];
             const auto &g2oSiw = correctedSim3[pKf];
@@ -368,13 +442,10 @@ void LoopClosing::correctLoop(const Sim3Ret &g2oScw, const KeyFramePtr &pLoopKf)
                 pMp->setLoopRefKF(pKf);
                 pMp->updateNormalAndDepth();
             }
-            // if (pKf == mpCurrKeyFrame)
-            //     continue;
             KeyFrame::updateConnections(pKf);
         }
 
         /// 回环闭合关键帧组投影到当前关键帧组中去（地图点的融合）
-        // std::cout << "开始进行回环组和当前组的地图点融合" << std::endl;
         vConnectedKfs.pop_back();
         std::size_t nMatchesCurr = mvMatchedMps.size();
         for (std::size_t idx = 0; idx < nMatchesCurr; ++idx) {
@@ -397,7 +468,6 @@ void LoopClosing::correctLoop(const Sim3Ret &g2oScw, const KeyFramePtr &pLoopKf)
         matcher.fuse(pKf, mvLoopGroupMps, mpMap, true, 4.0f);
 
     /// 统计新生成的关键帧之间的连接关系
-    // std::cout << "统计新生成的关键帧之间的连接关系" << std::endl;
     vConnectedKfs.push_back(mpCurrKeyFrame);
     std::map<KeyFramePtr, std::set<KeyFramePtr>> mLoopConnections;
     for (auto &pKf : vConnectedKfs) {
@@ -413,10 +483,12 @@ void LoopClosing::correctLoop(const Sim3Ret &g2oScw, const KeyFramePtr &pLoopKf)
     mpCurrKeyFrame->addLoopEdge(pLoopKf);
 
     /// 优化本质图
-    // std::cout << "开始优化本质图" << std::endl;
     Optimizer::optimizeEssentialGraph(mLoopConnections, mpMap, pLoopKf, mpCurrKeyFrame, 100, correctedSim3,
                                       unCorrectedSim3);
-    // std::cout << "本质图优化成功" << std::endl;
+    RCLCPP_INFO(rclcpp::get_logger("ORB_SLAM2"), "本质图优化完成");
+    mnLastLoopId = mpCurrKeyFrame->getID();
+    pLoopKf->setNotErased(false);
+    mpLocalMapper->start();
 }
 
 /**
