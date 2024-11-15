@@ -42,7 +42,7 @@ KeyFrame::SharedPtr LocalMapping::getNewKeyFrame() {
  *
  */
 void LocalMapping::run() {
-    while (!isFinished()) {
+    while (!isFinished() && rclcpp::ok()) {
         if (!isStop()) {
             runOnce();
             std::this_thread::sleep_for(3ms);

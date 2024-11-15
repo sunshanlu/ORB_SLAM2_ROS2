@@ -6,15 +6,14 @@
                 "limitSymbolsToIncludedHeaders": false
             },
             "includePath": [
-                "/home/rookie-lu/Project/learn/learn_ros2/install/base_interfaces_demo/include/**",
                 "/opt/ros/foxy/include/**",
                 "/usr/include/**",
-                "${workspaceFolder}/src/ORB_SLAM2/include",
-                "/opt/ros/foxy/include",
                 "/usr/include/eigen3",
-                "/home/rookie-lu/Project/ORB-SLAM2/ORB-SLAM2-ROS2/install/Release/orb_slam2_interfaces/include",
-                "/home/rookie-lu/Project/ORB-SLAM2/ORB-SLAM2-ROS2/install/orb_slam2_interfaces/include",
-                "${workspaceFolder}/src/image_publisher/include"
+                "${workspaceFolder}/src/ORB_SLAM2/include",
+                "${workspaceFolder}/install/Release/orb_slam2_interfaces/include",
+                "${workspaceFolder}/install/orb_slam2_interfaces/include",
+                "${workspaceFolder}/src/image_publisher/include",
+                "${workspaceFolder}/build/orb_slam2_interfaces/rosidl_generator_cpp"
             ],
             "name": "ROS",
             "intelliSenseMode": "gcc-x64",

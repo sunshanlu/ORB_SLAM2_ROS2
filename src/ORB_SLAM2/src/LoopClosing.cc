@@ -27,7 +27,7 @@ LoopClosing::LoopClosing(KeyFrameDBPtr pKeyFrameDB, MapPtr pMap, LocalMappingPtr
 
 /// 回环闭合线程入口函数
 void LoopClosing::run() {
-    while (!isRequestStop()) {
+    while (!isRequestStop() && rclcpp::ok()) {
         runOnce();
         if (mpCurrKeyFrame)
             mpCurrKeyFrame->setNotErased(false);

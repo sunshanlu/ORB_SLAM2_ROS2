@@ -24,6 +24,9 @@ int main(int argc, char **argv) {
     auto system = std::make_shared<System>(argv[2]);
 
     for (int idx = 0, num = Images.size(); idx < num; ++idx) {
+        if (!rclcpp::ok()) 
+            break;
+
         cv::Mat lImage = cv::imread(fmt::format("{}/image_0/{}", argv[1], Images[idx]), cv::IMREAD_UNCHANGED);
         cv::Mat rImage = cv::imread(fmt::format("{}/image_1/{}", argv[1], Images[idx]), cv::IMREAD_UNCHANGED);
         system->EstimatePose(lImage, rImage);
