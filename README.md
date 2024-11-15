@@ -31,24 +31,27 @@
 3. [DBoW3](https://github.com/rmsalinas/DBow3)
 4. [g2o_20201223](https://github.com/RainerKuemmerle/g2o/releases/tag/20201223_git)
 5. [Pangolin 0.9.1](https://github.com/stevenlovegrove/Pangolin/releases/tag/v0.9.1)
-6. Eigen3
-7. cv_bridge
-8. fmt
-9. geometry_msgs
-10. sensor_msgs
+6. [Sophus 1.22.10](https://github.com/strasdat/Sophus/releases/tag/1.22.10)
+7. [ROS2 foxy](https://docs.ros.org/en/foxy/Installation/Ubuntu-Install-Debians.html)
+8. Eigen3
+9. cv_bridge
+10. fmt
+11. geometry_msgs
+12. sensor_msgs
+13. gflag
 
 针对OpenCV、DBoW3和g2o，需要去上述给定的地址下载源码，编译安装。
 
 对于没有指定地址的三方库，可以使用如下命令安装：
 ```shell
 sudo apt update
-sudo apt install libeigen3-dev libfmt-dev ros-$ROS_DISTRO-cv-bridge ros-$ROS_DISTRO-geometry-msgs ros-$ROS_DISTRO-sensor_msgs
+sudo apt install libeigen3-dev libgflag-dev libfmt-dev ros-$ROS_DISTRO-cv-bridge ros-$ROS_DISTRO-geometry-msgs ros-$ROS_DISTRO-sensor_msgs
 ```
 
 ## 3. 编译
 ```shell
-git clone https://github.com/sunshanlu/ORB-SLAM2-ROS2.git
-cd ORB-SLAM2-ROS2
+git clone https://github.com/sunshanlu/ORB_SLAM2_ROS2.git
+cd ORB_SLAM2_ROS2
 colcon build
 ```
 

@@ -36,9 +36,9 @@ ORBExtractor.iniThFAST: 20
 ORBExtractor.minThFAST: 7
 
 # 路径信息
-Path.Vocabulary: "/home/rookie-lu/Project/ORB-SLAM2/ORB-SLAM2-ROS2/Vocabulary/ORBvoc.txt"
-Path.BriefTemplate: "/home/rookie-lu/Project/ORB-SLAM2/ORB-SLAM2-ROS2/config/BRIEF_TEMPLATE.txt"
-Path.Map: "/home/rookie-lu/Project/ORB-SLAM2/ORB-SLAM2-ROS2/map/KITTI"
+Path.Vocabulary: "/home/lucky-lu/Projects/ORB_SLAM2_ROS2/Vocabulary/ORBvoc.txt"
+Path.BriefTemplate: "/home/lucky-lu/Projects/ORB_SLAM2_ROS2/config/BRIEF_TEMPLATE.txt"
+Path.Map: "/home/lucky-lu/Projects/ORB_SLAM2_ROS2/map/KITTI"
 
 # 是否以仅跟踪模式启动
 OnlyTracking: 0
