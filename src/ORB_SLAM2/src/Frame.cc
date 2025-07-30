@@ -6,60 +6,66 @@
 #include "ORB_SLAM2/KeyFrame.h"
 #include "ORB_SLAM2/MapPoint.h"
 
-namespace ORB_SLAM2_ROS2 {
+namespace ORB_SLAM2_ROS2
+{
 
 /**
  * @brief 展示双目图像的匹配结果
  *
  */
-void Frame::showStereoMatches() const {
-    cv::Mat showImage;
-    std::vector<cv::Mat> imgs{mLeftIm, mRightIm};
-    cv::hconcat(imgs, showImage);
-    cv::cvtColor(showImage, showImage, cv::COLOR_GRAY2BGR);
-    std::vector<cv::KeyPoint> rightKps, leftKps;
-    for (std::size_t i = 0; i < mvFeatsLeft.size(); ++i) {
-        const auto &rightU = mvFeatsRightU[i];
-        const auto &depth = mvDepths[i];
-        if (rightU == -1) {
-            continue;
-        }
-        const auto &lkp = mvFeatsLeft[i];
-        cv::KeyPoint rkp;
-        rkp.pt.x = rightU + mLeftIm.cols;
-        rkp.pt.y = lkp.pt.y;
-        cv::line(showImage, lkp.pt, rkp.pt, cv::Scalar(255, 0, 0));
-        rightKps.push_back(rkp);
-        leftKps.push_back(lkp);
-        /// 输出左图，右图和深度值
-        std::cout << lkp.pt.x << std::endl;
-        std::cout << lkp.pt.y << std::endl;
-        std::cout << rightU << std::endl;
-        std::cout << depth << std::endl;
-        std::cout << "===========================" << std::endl;
+void Frame::showStereoMatches() const
+{
+  cv::Mat showImage;
+  std::vector<cv::Mat> imgs{mLeftIm, mRightIm};
+  cv::hconcat(imgs, showImage);
+  cv::cvtColor(showImage, showImage, cv::COLOR_GRAY2BGR);
+  std::vector<cv::KeyPoint> rightKps, leftKps;
+  for (std::size_t i = 0; i < mvFeatsLeft.size(); ++i)
+  {
+    const auto &rightU = mvFeatsRightU[i];
+    const auto &depth = mvDepths[i];
+    if (rightU == -1)
+    {
+      continue;
     }
-    cv::drawKeypoints(showImage, leftKps, showImage, cv::Scalar(0, 255, 0));
-    cv::drawKeypoints(showImage, rightKps, showImage, cv::Scalar(0, 0, 255));
-    cv::imshow("showImage", showImage);
-    cv::waitKey(0);
-    cv::destroyAllWindows();
+    const auto &lkp = mvFeatsLeft[i];
+    cv::KeyPoint rkp;
+    rkp.pt.x = rightU + mLeftIm.cols;
+    rkp.pt.y = lkp.pt.y;
+    cv::line(showImage, lkp.pt, rkp.pt, cv::Scalar(255, 0, 0));
+    rightKps.push_back(rkp);
+    leftKps.push_back(lkp);
+    /// 输出左图，右图和深度值
+    std::cout << lkp.pt.x << std::endl;
+    std::cout << lkp.pt.y << std::endl;
+    std::cout << rightU << std::endl;
+    std::cout << depth << std::endl;
+    std::cout << "===========================" << std::endl;
+  }
+  cv::drawKeypoints(showImage, leftKps, showImage, cv::Scalar(0, 255, 0));
+  cv::drawKeypoints(showImage, rightKps, showImage, cv::Scalar(0, 0, 255));
+  cv::imshow("showImage", showImage);
+  cv::waitKey(0);
+  cv::destroyAllWindows();
 }
 
 /// 初始化网格
-void VirtualFrame::initGrid() {
-    int rows = cvCeil((float)(mfMaxV - mfMinV) / mnGridHeight);
-    int cols = cvCeil((float)(mfMaxU - mfMinU) / mnGridWidth);
+void VirtualFrame::initGrid()
+{
+  int rows = cvCeil((float)(mfMaxV - mfMinV) / mnGridHeight);
+  int cols = cvCeil((float)(mfMaxU - mfMinU) / mnGridWidth);
 
-    mGrids.resize(rows);
-    for (auto &grid : mGrids)
-        grid.resize(cols);
+  mGrids.resize(rows);
+  for (auto &grid : mGrids)
+    grid.resize(cols);
 
-    for (std::size_t idx = 0; idx < mvFeatsLeft.size(); ++idx) {
-        auto &feat = mvFeatsLeft[idx];
-        std::size_t rowIdx = cvFloor(feat.pt.y / mnGridHeight);
-        std::size_t colIdx = cvFloor(feat.pt.x / mnGridWidth);
-        mGrids[rowIdx][colIdx].push_back(idx);
-    }
+  for (std::size_t idx = 0; idx < mvFeatsLeft.size(); ++idx)
+  {
+    auto &feat = mvFeatsLeft[idx];
+    std::size_t rowIdx = cvFloor(feat.pt.y / mnGridHeight);
+    std::size_t colIdx = cvFloor(feat.pt.x / mnGridWidth);
+    mGrids[rowIdx][colIdx].push_back(idx);
+  }
 }
 
 /**
@@ -76,33 +82,32 @@ void VirtualFrame::initGrid() {
  * @param maxThresh FAST检测的最大阈值
  * @param minThresh FAST检测的最小阈值
  */
-Frame::Frame(cv::Mat leftImg, cv::Mat rightImg, int nFeatures, const std::string &briefFp, int maxThresh, int minThresh,
-             VocabPtr pVoc, int nLevels, float scale)
+Frame::Frame(cv::Mat leftImg, cv::Mat rightImg, int nFeatures, const std::string &briefFp, int maxThresh, int minThresh, VocabPtr pVoc, int nLevels,
+             float scale)
     : mLeftIm(leftImg)
     , mRightIm(rightImg)
-    , VirtualFrame(leftImg.cols, leftImg.rows, pVoc) {
-    mpExtractorLeft = std::make_shared<ORBExtractor>(mLeftIm, nFeatures, nLevels, scale, briefFp, maxThresh, minThresh);
-    mpExtractorRight =
-        std::make_shared<ORBExtractor>(mRightIm, nFeatures, nLevels, scale, briefFp, maxThresh, minThresh);
+    , VirtualFrame(leftImg.cols, leftImg.rows, pVoc)
+{
+  mpExtractorLeft = std::make_shared<ORBExtractor>(mLeftIm, nFeatures, nLevels, scale, briefFp, maxThresh, minThresh);
+  mpExtractorRight = std::make_shared<ORBExtractor>(mRightIm, nFeatures, nLevels, scale, briefFp, maxThresh, minThresh);
 
-    if (!mbScaled) {
-        mvfScaledFactors = mpExtractorLeft->getScaledFactors();
-        mbScaled = true;
-    }
+  if (!mbScaled)
+  {
+    mvfScaledFactors = mpExtractorLeft->getScaledFactors();
+    mbScaled = true;
+  }
 
-    std::thread leftThread(
-        std::bind(&ORBExtractor::extract, mpExtractorLeft.get(), std::ref(mvFeatsLeft), std::ref(mvLeftDescriptor)));
-    std::thread rightThread(
-        std::bind(&ORBExtractor::extract, mpExtractorRight.get(), std::ref(mvFeatsRight), std::ref(mRightDescriptor)));
-    if (!leftThread.joinable() || !rightThread.joinable())
-        throw ThreadError("普通帧提取特征点时线程不可joinable");
-    leftThread.join();
-    rightThread.join();
-    Camera::undistortPoints(mvFeatsLeft);
+  std::thread leftThread(std::bind(&ORBExtractor::extract, mpExtractorLeft.get(), std::ref(mvFeatsLeft), std::ref(mvLeftDescriptor)));
+  std::thread rightThread(std::bind(&ORBExtractor::extract, mpExtractorRight.get(), std::ref(mvFeatsRight), std::ref(mRightDescriptor)));
+  if (!leftThread.joinable() || !rightThread.joinable())
+    throw ThreadError("普通帧提取特征点时线程不可joinable");
+  leftThread.join();
+  rightThread.join();
+  Camera::undistortPoints(mvFeatsLeft);
 
-    mvpMapPoints.resize(mvFeatsLeft.size(), nullptr);
-    VirtualFrame::initGrid();
-    mnID = mnNextID;
+  mvpMapPoints.resize(mvFeatsLeft.size(), nullptr);
+  VirtualFrame::initGrid();
+  mnID = mnNextID;
 }
 
 /**
@@ -117,36 +122,40 @@ Frame::Frame(cv::Mat leftImg, cv::Mat rightImg, int nFeatures, const std::string
  * @param pVoc      词袋模型指针
  * @param dScale    深度图像缩放尺度
  */
-Frame::Frame(cv::Mat colorImg, cv::Mat depthImg, int nFeatures, const std::string &briefFp, int maxThresh,
-             int minThresh, VocabPtr pVoc, float dScale, int nLevels, float scale)
+Frame::Frame(cv::Mat colorImg, cv::Mat depthImg, int nFeatures, const std::string &briefFp, int maxThresh, int minThresh, VocabPtr pVoc, float dScale,
+             int nLevels, float scale)
     : mLeftIm(colorImg)
-    , VirtualFrame(colorImg.cols, colorImg.rows, pVoc) {
-    depthImg.convertTo(depthImg, CV_32F);
-    depthImg /= dScale;
-    mpExtractorLeft = std::make_shared<ORBExtractor>(mLeftIm, nFeatures, nLevels, scale, briefFp, maxThresh, minThresh);
-    if (!mbScaled) {
-        mvfScaledFactors = mpExtractorLeft->getScaledFactors();
-        mbScaled = true;
-    }
-    mpExtractorLeft->extract(mvFeatsLeft, mvLeftDescriptor);
-    decltype(mvFeatsLeft) vFeatsLeftCopy(mvFeatsLeft);
-    Camera::undistortPoints(mvFeatsLeft);
-    auto FeaturesN = mvFeatsLeft.size();
-    mvpMapPoints.resize(FeaturesN, nullptr);
-    mvDepths.resize(FeaturesN, -1);
-    mvFeatsRightU.resize(FeaturesN, -1);
-    VirtualFrame::initGrid();
-    mnID = mnNextID;
+    , VirtualFrame(colorImg.cols, colorImg.rows, pVoc)
+{
+  depthImg.convertTo(depthImg, CV_32F);
+  depthImg /= dScale;
+  mpExtractorLeft = std::make_shared<ORBExtractor>(mLeftIm, nFeatures, nLevels, scale, briefFp, maxThresh, minThresh);
+  if (!mbScaled)
+  {
+    mvfScaledFactors = mpExtractorLeft->getScaledFactors();
+    mbScaled = true;
+  }
+  mpExtractorLeft->extract(mvFeatsLeft, mvLeftDescriptor);
+  decltype(mvFeatsLeft) vFeatsLeftCopy(mvFeatsLeft);
+  Camera::undistortPoints(mvFeatsLeft);
+  auto FeaturesN = mvFeatsLeft.size();
+  mvpMapPoints.resize(FeaturesN, nullptr);
+  mvDepths.resize(FeaturesN, -1);
+  mvFeatsRightU.resize(FeaturesN, -1);
+  VirtualFrame::initGrid();
+  mnID = mnNextID;
 
-    for (std::size_t idx = 0; idx < FeaturesN; ++idx) {
-        const cv::KeyPoint &kp = vFeatsLeftCopy[idx];
-        const cv::KeyPoint &kpU = mvFeatsLeft[idx];
-        const float d = depthImg.at<float>(kp.pt.y, kp.pt.x);
-        if (d > 0) {
-            mvDepths[idx] = d;
-            mvFeatsRightU[idx] = kpU.pt.x - Camera::mfBf / d;
-        }
+  for (std::size_t idx = 0; idx < FeaturesN; ++idx)
+  {
+    const cv::KeyPoint &kp = vFeatsLeftCopy[idx];
+    const cv::KeyPoint &kpU = mvFeatsLeft[idx];
+    const float d = depthImg.at<float>(kp.pt.y, kp.pt.x);
+    if (d > 0)
+    {
+      mvDepths[idx] = d;
+      mvFeatsRightU[idx] = kpU.pt.x - Camera::mfBf / d;
     }
+  }
 }
 
 /**
@@ -155,9 +164,10 @@ Frame::Frame(cv::Mat colorImg, cv::Mat depthImg, int nFeatures, const std::strin
  * @param idx 输入的指定位置索引
  * @param pMp 输入的地图点
  */
-void VirtualFrame::setMapPoint(int idx, MapPointPtr pMp) {
-    std::unique_lock<std::mutex> lock(mMutexMapPoints);
-    mvpMapPoints[idx] = pMp;
+void VirtualFrame::setMapPoint(int idx, MapPointPtr pMp)
+{
+  std::unique_lock<std::mutex> lock(mMutexMapPoints);
+  mvpMapPoints[idx] = pMp;
 }
 
 /**
@@ -166,25 +176,29 @@ void VirtualFrame::setMapPoint(int idx, MapPointPtr pMp) {
  *      1. 普通帧没有创建地图点的权限，只是利用普通帧的信息进行地图点计算
  * @param mapPoints 输出的地图点信息
  */
-int Frame::unProject(std::vector<MapPoint::SharedPtr> &mapPoints) {
-    mapPoints.clear();
-    mapPoints.resize(mvFeatsLeft.size(), nullptr);
-    int nCreated = 0;
-    for (std::size_t idx = 0; idx < mvFeatsLeft.size(); ++idx) {
-        auto pMp = mvpMapPoints[idx];
-        if (pMp && !pMp->isBad()) {
-            mapPoints[idx] = pMp;
-            continue;
-        }
-        cv::Mat p3dC = VirtualFrame::unProject(idx);
-        if (!p3dC.empty()) {
-            cv::Mat p3dW = mRwc * p3dC + mtwc;
-            mapPoints[idx] = MapPoint::create(p3dW);
-            ++nCreated;
-        }
+int Frame::unProject(std::vector<MapPoint::SharedPtr> &mapPoints)
+{
+  mapPoints.clear();
+  mapPoints.resize(mvFeatsLeft.size(), nullptr);
+  int nCreated = 0;
+  for (std::size_t idx = 0; idx < mvFeatsLeft.size(); ++idx)
+  {
+    auto pMp = mvpMapPoints[idx];
+    if (pMp && !pMp->isBad())
+    {
+      mapPoints[idx] = pMp;
+      continue;
     }
-    mvpMapPoints = mapPoints;
-    return nCreated;
+    cv::Mat p3dC = VirtualFrame::unProject(idx);
+    if (!p3dC.empty())
+    {
+      cv::Mat p3dW = mRwc * p3dC + mtwc;
+      mapPoints[idx] = MapPoint::create(p3dW);
+      ++nCreated;
+    }
+  }
+  mvpMapPoints = mapPoints;
+  return nCreated;
 }
 
 /**
@@ -193,32 +207,39 @@ int Frame::unProject(std::vector<MapPoint::SharedPtr> &mapPoints) {
  * @param th    输入的相连阈值
  * @return std::vector<KeyFrame::SharedPtr>
  */
-std::vector<KeyFrame::SharedPtr> VirtualFrame::getConnectedKfs(int th) {
-    std::map<KeyFrame::SharedPtr, std::size_t> connectKfsWeight;
-    std::vector<KeyFrame::SharedPtr> connectKfs;
-    for (auto &pMp : mvpMapPoints) {
-        if (!pMp || pMp->isBad()) {
-            continue;
-        }
-        for (auto &obs : pMp->getObservation()) {
-            auto kfPtr = obs.first.lock();
-            if (kfPtr && !kfPtr->isBad()) {
-                ++connectKfsWeight[kfPtr];
-            }
-        }
+std::vector<KeyFrame::SharedPtr> VirtualFrame::getConnectedKfs(int th)
+{
+  std::map<KeyFrame::SharedPtr, std::size_t> connectKfsWeight;
+  std::vector<KeyFrame::SharedPtr> connectKfs;
+  for (auto &pMp : mvpMapPoints)
+  {
+    if (!pMp || pMp->isBad())
+    {
+      continue;
     }
-    int maxWeight = 0;
-    KeyFrame::SharedPtr maxKF;
-    for (const auto &item : connectKfsWeight) {
-        if (item.second >= th)
-            connectKfs.push_back(item.first);
-        if (item.second > maxWeight) {
-            maxWeight = item.second;
-            maxKF = item.first;
-        }
+    for (auto &obs : pMp->getObservation())
+    {
+      auto kfPtr = obs.first.lock();
+      if (kfPtr && !kfPtr->isBad())
+      {
+        ++connectKfsWeight[kfPtr];
+      }
     }
-    mpRefKF = maxKF;
-    return connectKfs;
+  }
+  int maxWeight = 0;
+  KeyFrame::SharedPtr maxKF;
+  for (const auto &item : connectKfsWeight)
+  {
+    if (item.second >= th)
+      connectKfs.push_back(item.first);
+    if (item.second > maxWeight)
+    {
+      maxWeight = item.second;
+      maxKF = item.first;
+    }
+  }
+  mpRefKF = maxKF;
+  return connectKfs;
 }
 
 /**
@@ -226,9 +247,10 @@ std::vector<KeyFrame::SharedPtr> VirtualFrame::getConnectedKfs(int th) {
  *
  * @return std::vector<MapPointPtr> 输出的地图点
  */
-std::vector<MapPoint::SharedPtr> VirtualFrame::getMapPoints() {
-    std::unique_lock<std::mutex> lock(mMutexMapPoints);
-    return mvpMapPoints;
+std::vector<MapPoint::SharedPtr> VirtualFrame::getMapPoints()
+{
+  std::unique_lock<std::mutex> lock(mMutexMapPoints);
+  return mvpMapPoints;
 }
 
 /**
@@ -237,18 +259,19 @@ std::vector<MapPoint::SharedPtr> VirtualFrame::getMapPoints() {
  * @param idx 左图特征点索引
  * @return cv::Mat 输出的相机坐标系下的3D点
  */
-cv::Mat VirtualFrame::unProject(std::size_t idx) {
-    const cv::KeyPoint &lKp = mvFeatsLeft[idx];
-    const double &depth = mvDepths[idx];
-    if (depth < 0)
-        return cv::Mat();
-    float x = (lKp.pt.x - Camera::mfCx) / Camera::mfFx;
-    float y = (lKp.pt.y - Camera::mfCy) / Camera::mfFy;
-    cv::Mat p3dC(3, 1, CV_32F);
-    p3dC.at<float>(0) = depth * x;
-    p3dC.at<float>(1) = depth * y;
-    p3dC.at<float>(2) = depth;
-    return p3dC;
+cv::Mat VirtualFrame::unProject(std::size_t idx)
+{
+  const cv::KeyPoint &lKp = mvFeatsLeft[idx];
+  const double &depth = mvDepths[idx];
+  if (depth < 0)
+    return cv::Mat();
+  float x = (lKp.pt.x - Camera::mfCx) / Camera::mfFx;
+  float y = (lKp.pt.y - Camera::mfCy) / Camera::mfFy;
+  cv::Mat p3dC(3, 1, CV_32F);
+  p3dC.at<float>(0) = depth * x;
+  p3dC.at<float>(1) = depth * y;
+  p3dC.at<float>(2) = depth;
+  return p3dC;
 }
 
 /**
@@ -260,28 +283,31 @@ cv::Mat VirtualFrame::unProject(std::size_t idx) {
  * @param maxNLevel 输入的最大金字塔层级（包含）
  * @return std::vector<std::size_t> 输出符合要求的特征点索引
  */
-std::vector<std::size_t> VirtualFrame::findFeaturesInArea(const cv::KeyPoint &kp, float radius, int minNLevel,
-                                                          int maxNLevel) {
-    std::vector<std::size_t> vFeatures;
-    radius = radius * getScaledFactor2(kp.octave);
-    int minX = std::max(0, cvRound(kp.pt.x - radius));
-    int maxX = std::min((int)mfMaxU, cvRound(kp.pt.x + radius));
-    int minY = std::max(0, cvRound(kp.pt.y - radius));
-    int maxY = std::min((int)mfMaxV, cvRound(kp.pt.y + radius));
-    int minColID = cvFloor((float)minX / mnGridWidth);
-    int maxColID = cvFloor((float)maxX / mnGridWidth);
-    int minRowID = cvFloor((float)minY / mnGridHeight);
-    int maxRowID = cvFloor((float)maxY / mnGridHeight);
-    for (std::size_t rowID = minRowID; rowID <= maxRowID; ++rowID) {
-        for (std::size_t colID = minColID; colID <= maxColID; ++colID) {
-            for (const auto &featID : mGrids[rowID][colID]) {
-                int octave = mvFeatsLeft[featID].octave;
-                if (octave <= maxNLevel && octave >= minNLevel)
-                    vFeatures.push_back(featID);
-            }
-        }
+std::vector<std::size_t> VirtualFrame::findFeaturesInArea(const cv::KeyPoint &kp, float radius, int minNLevel, int maxNLevel)
+{
+  std::vector<std::size_t> vFeatures;
+  radius = radius * getScaledFactor2(kp.octave);
+  int minX = std::max(0, cvRound(kp.pt.x - radius));
+  int maxX = std::min((int)mfMaxU, cvRound(kp.pt.x + radius));
+  int minY = std::max(0, cvRound(kp.pt.y - radius));
+  int maxY = std::min((int)mfMaxV, cvRound(kp.pt.y + radius));
+  int minColID = cvFloor((float)minX / mnGridWidth);
+  int maxColID = cvFloor((float)maxX / mnGridWidth);
+  int minRowID = cvFloor((float)minY / mnGridHeight);
+  int maxRowID = cvFloor((float)maxY / mnGridHeight);
+  for (std::size_t rowID = minRowID; rowID <= maxRowID; ++rowID)
+  {
+    for (std::size_t colID = minColID; colID <= maxColID; ++colID)
+    {
+      for (const auto &featID : mGrids[rowID][colID])
+      {
+        int octave = mvFeatsLeft[featID].octave;
+        if (octave <= maxNLevel && octave >= minNLevel)
+          vFeatures.push_back(featID);
+      }
     }
-    return vFeatures;
+  }
+  return vFeatures;
 }
 
 /**
@@ -291,18 +317,19 @@ std::vector<std::size_t> VirtualFrame::findFeaturesInArea(const cv::KeyPoint &kp
  * @param isPositive    输出的投影到相机坐标系下，深度是否为正
  * @return cv::Point2f
  */
-cv::Point2f VirtualFrame::project2UV(const cv::Mat &p3dW, bool &isPositive) {
-    cv::Mat p3dC;
-    cv::Point2f point;
-    {
-        std::unique_lock<std::mutex> lock(mPoseMutex);
-        p3dC = mRcw * p3dW + mtcw;
-    }
-    float z = p3dC.at<float>(2, 0);
-    point.x = p3dC.at<float>(0, 0) / z * Camera::mfFx + Camera::mfCx;
-    point.y = p3dC.at<float>(1, 0) / z * Camera::mfFy + Camera::mfCy;
-    isPositive = z > 0;
-    return point;
+cv::Point2f VirtualFrame::project2UV(const cv::Mat &p3dW, bool &isPositive)
+{
+  cv::Mat p3dC;
+  cv::Point2f point;
+  {
+    std::unique_lock<std::mutex> lock(mPoseMutex);
+    p3dC = mRcw * p3dW + mtcw;
+  }
+  float z = p3dC.at<float>(2, 0);
+  point.x = p3dC.at<float>(0, 0) / z * Camera::mfFx + Camera::mfCx;
+  point.y = p3dC.at<float>(1, 0) / z * Camera::mfFy + Camera::mfCy;
+  isPositive = z > 0;
+  return point;
 }
 
 /**
@@ -311,7 +338,9 @@ cv::Point2f VirtualFrame::project2UV(const cv::Mat &p3dW, bool &isPositive) {
  */
 VirtualFrame::VirtualFrame()
     : mbBowComputed(true)
-    , mnID(0) {}
+    , mnID(0)
+{
+}
 
 /**
  * @brief 参考关键帧，就是基于哪个关键帧做的位姿优化

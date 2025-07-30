@@ -1,5 +1,5 @@
-#include <unordered_set>
 #include <cmath>
+#include <unordered_set>
 
 #include <g2o/core/optimization_algorithm_levenberg.h>
 #include <g2o/core/robust_kernel_impl.h>
@@ -17,7 +17,8 @@
 #include "ORB_SLAM2/Optimizer.h"
 #include "ORB_SLAM2/Sim3Solver.h"
 
-namespace ORB_SLAM2_ROS2 {
+namespace ORB_SLAM2_ROS2
+{
 
 /**
  * @brief 跟踪线程部分的优化器，仅优化帧位姿
@@ -29,153 +30,176 @@ namespace ORB_SLAM2_ROS2 {
  * @param pFrame    输入的待优化位姿的帧
  * @return int      输出优化内点的个数
  */
-int Optimizer::OptimizePoseOnly(Frame::SharedPtr pFrame) {
-    auto lm = new g2o::OptimizationAlgorithmLevenberg(std::make_unique<BSSE3>(std::make_unique<LSSE3Dense>()));
+int Optimizer::OptimizePoseOnly(Frame::SharedPtr pFrame)
+{
+  auto lm = new g2o::OptimizationAlgorithmLevenberg(std::make_unique<BSSE3>(std::make_unique<LSSE3Dense>()));
 
-    g2o::SparseOptimizer graph;
-    graph.setAlgorithm(lm);
+  g2o::SparseOptimizer graph;
+  graph.setAlgorithm(lm);
 
-    auto poseVertex = new g2o::VertexSE3Expmap();
-    poseVertex->setId(0);
-    graph.addVertex(poseVertex);
+  auto poseVertex = new g2o::VertexSE3Expmap();
+  poseVertex->setId(0);
+  graph.addVertex(poseVertex);
 
-    std::map<std::size_t, g2o::EdgeSE3ProjectXYZOnlyPose *> monoEdges;
-    std::map<std::size_t, g2o::EdgeStereoSE3ProjectXYZOnlyPose *> stereoEdges;
-    std::vector<bool> inLier(pFrame->mvFeatsLeft.size(), true);
+  std::map<std::size_t, g2o::EdgeSE3ProjectXYZOnlyPose *> monoEdges;
+  std::map<std::size_t, g2o::EdgeStereoSE3ProjectXYZOnlyPose *> stereoEdges;
+  std::vector<bool> inLier(pFrame->mvFeatsLeft.size(), true);
 
-    /// 添加位姿节点和误差边
-    int edges = 0;
-    std::vector<cv::Mat> mapPointPoses;
-    auto mapPoints = pFrame->getMapPoints();
-    auto &kps = pFrame->getLeftKeyPoints();
-    std::vector<double> monoEdgeErrors;
-    std::vector<double> stereoEdgeErrors;
-    std::vector<g2o::EdgeSE3ProjectXYZOnlyPose *> monoEdgesVec;
-    std::vector<g2o::EdgeStereoSE3ProjectXYZOnlyPose *> stereoEdgesVec;
+  /// 添加位姿节点和误差边
+  int edges = 0;
+  std::vector<cv::Mat> mapPointPoses;
+  auto mapPoints = pFrame->getMapPoints();
+  auto &kps = pFrame->getLeftKeyPoints();
+  std::vector<double> monoEdgeErrors;
+  std::vector<double> stereoEdgeErrors;
+  std::vector<g2o::EdgeSE3ProjectXYZOnlyPose *> monoEdgesVec;
+  std::vector<g2o::EdgeStereoSE3ProjectXYZOnlyPose *> stereoEdgesVec;
 
-    for (std::size_t idx = 0; idx < mapPoints.size(); ++idx) {
-        auto &pMp = mapPoints[idx];
-        const auto &rightU = pFrame->getRightU(idx);
-        const auto &fKp = kps[idx];
-        cv::Mat pos;
-        if (pMp && !pMp->isBad()) {
-            pos = pMp->getPos();
-            auto rk = new g2o::RobustKernelHuber();
-            if (rightU < 0) {
-                rk->setDelta(deltaMono);
-                auto edgeMono = new g2o::EdgeSE3ProjectXYZOnlyPose();
-                edgeMono->setVertex(0, poseVertex);
-                edgeMono->fx = Camera::mfFx;
-                edgeMono->fy = Camera::mfFy;
-                edgeMono->cx = Camera::mfCx;
-                edgeMono->cy = Camera::mfCy;
-                edgeMono->Xw << (double)pos.at<float>(0), (double)pos.at<float>(1), (double)pos.at<float>(2);
-                edgeMono->setMeasurement(g2o::Vector2((double)fKp.pt.x, (double)fKp.pt.y));
-                edgeMono->setInformation(Eigen::Matrix2d::Identity() * pFrame->getScaledFactorInv2(fKp.octave));
-                edgeMono->setRobustKernel(rk);
-                monoEdges.insert(std::make_pair(idx, edgeMono));
-                graph.addEdge(edgeMono);
-                edgeMono->computeError();
-                double error = edgeMono->chi2();
-                monoEdgeErrors.push_back(error);
-                monoEdgesVec.push_back(edgeMono);
-            } else {
-                rk->setDelta(deltaStereo);
-                auto edgeStereo = new g2o::EdgeStereoSE3ProjectXYZOnlyPose();
-                edgeStereo->setVertex(0, poseVertex);
-                edgeStereo->fx = Camera::mfFx;
-                edgeStereo->fy = Camera::mfFy;
-                edgeStereo->cx = Camera::mfCx;
-                edgeStereo->cy = Camera::mfCy;
-                edgeStereo->bf = Camera::mfBf;
-                edgeStereo->Xw << (double)pos.at<float>(0), (double)pos.at<float>(1), (double)pos.at<float>(2);
-                edgeStereo->setMeasurement(g2o::Vector3((double)fKp.pt.x, (double)fKp.pt.y, (double)rightU));
-                edgeStereo->setInformation(Eigen::Matrix3d::Identity() * pFrame->getScaledFactorInv2(fKp.octave));
-                edgeStereo->setRobustKernel(rk);
-                stereoEdges.insert(std::make_pair(idx, edgeStereo));
-                graph.addEdge(edgeStereo);
-                edgeStereo->computeError();
-                double error = edgeStereo->chi2();
-                stereoEdgeErrors.push_back(error);
-                stereoEdgesVec.push_back(edgeStereo);
-            }
-            ++edges;
-        } else {
-            pMp = nullptr;
-            inLier[idx] = false;
-        }
-        mapPointPoses.push_back(pos);
+  for (std::size_t idx = 0; idx < mapPoints.size(); ++idx)
+  {
+    auto &pMp = mapPoints[idx];
+    const auto &rightU = pFrame->getRightU(idx);
+    const auto &fKp = kps[idx];
+    cv::Mat pos;
+    if (pMp && !pMp->isBad())
+    {
+      pos = pMp->getPos();
+      auto rk = new g2o::RobustKernelHuber();
+      if (rightU < 0)
+      {
+        rk->setDelta(deltaMono);
+        auto edgeMono = new g2o::EdgeSE3ProjectXYZOnlyPose();
+        edgeMono->setVertex(0, poseVertex);
+        edgeMono->fx = Camera::mfFx;
+        edgeMono->fy = Camera::mfFy;
+        edgeMono->cx = Camera::mfCx;
+        edgeMono->cy = Camera::mfCy;
+        edgeMono->Xw << (double)pos.at<float>(0), (double)pos.at<float>(1), (double)pos.at<float>(2);
+        edgeMono->setMeasurement(g2o::Vector2((double)fKp.pt.x, (double)fKp.pt.y));
+        edgeMono->setInformation(Eigen::Matrix2d::Identity() * pFrame->getScaledFactorInv2(fKp.octave));
+        edgeMono->setRobustKernel(rk);
+        monoEdges.insert(std::make_pair(idx, edgeMono));
+        graph.addEdge(edgeMono);
+        edgeMono->computeError();
+        double error = edgeMono->chi2();
+        monoEdgeErrors.push_back(error);
+        monoEdgesVec.push_back(edgeMono);
+      }
+      else
+      {
+        rk->setDelta(deltaStereo);
+        auto edgeStereo = new g2o::EdgeStereoSE3ProjectXYZOnlyPose();
+        edgeStereo->setVertex(0, poseVertex);
+        edgeStereo->fx = Camera::mfFx;
+        edgeStereo->fy = Camera::mfFy;
+        edgeStereo->cx = Camera::mfCx;
+        edgeStereo->cy = Camera::mfCy;
+        edgeStereo->bf = Camera::mfBf;
+        edgeStereo->Xw << (double)pos.at<float>(0), (double)pos.at<float>(1), (double)pos.at<float>(2);
+        edgeStereo->setMeasurement(g2o::Vector3((double)fKp.pt.x, (double)fKp.pt.y, (double)rightU));
+        edgeStereo->setInformation(Eigen::Matrix3d::Identity() * pFrame->getScaledFactorInv2(fKp.octave));
+        edgeStereo->setRobustKernel(rk);
+        stereoEdges.insert(std::make_pair(idx, edgeStereo));
+        graph.addEdge(edgeStereo);
+        edgeStereo->computeError();
+        double error = edgeStereo->chi2();
+        stereoEdgeErrors.push_back(error);
+        stereoEdgesVec.push_back(edgeStereo);
+      }
+      ++edges;
     }
-
-    auto se3 = Converter::ConvertTcw2SE3(pFrame->mRcw, pFrame->mtcw);
-    int nBad = 0;
-
-    for (int i = 0; i < 4; ++i) {
-        nBad = 0;
-        poseVertex->setEstimate(se3);
-        graph.initializeOptimization(0);
-        graph.optimize(10);
-
-        /// 寻找超出要求的误差边
-        for (auto &item : monoEdges) {
-            auto &edge = item.second;
-            const auto &octave = pFrame->mvFeatsLeft[item.first].octave;
-            float sigma2 = pFrame->getScaledFactor2(octave);
-            if (!inLier[item.first]) {
-                edge->computeError();
-            }
-            auto error = edge->chi2();
-            if (edge->chi2() > 5.991 * sigma2) {
-                inLier[item.first] = false;
-                edge->setLevel(1);
-                ++nBad;
-            } else {
-                inLier[item.first] = true;
-                edge->setLevel(0);
-            }
-            if (i == 2)
-                edge->setRobustKernel(nullptr);
-        }
-        for (auto &item : stereoEdges) {
-            auto &edge = item.second;
-            const auto &octave = pFrame->mvFeatsLeft[item.first].octave;
-            float sigma2 = pFrame->getScaledFactor2(octave);
-            if (!inLier[item.first]) {
-                edge->computeError();
-            }
-            auto error = edge->chi2();
-            if (edge->chi2() > 7.815 * sigma2) {
-                inLier[item.first] = false;
-                edge->setLevel(1);
-                ++nBad;
-            } else {
-                inLier[item.first] = true;
-                edge->setLevel(0);
-            }
-            if (i == 2)
-                edge->setRobustKernel(nullptr);
-        }
+    else
+    {
+      pMp = nullptr;
+      inLier[idx] = false;
     }
-    for (std::size_t idx = 0; idx < inLier.size(); ++idx) {
-        if (!inLier[idx])
-            continue;
-        bool isPositive = false;
-        auto pointUV = pFrame->project2UV(mapPointPoses[idx], isPositive);
-        if (!isPositive || pointUV.x > pFrame->mfMaxU || pointUV.x < 0 || pointUV.y > pFrame->mfMaxV || pointUV.y < 0) {
-            inLier[idx] = false;
-            ++nBad;
-        }
+    mapPointPoses.push_back(pos);
+  }
+
+  auto se3 = Converter::ConvertTcw2SE3(pFrame->mRcw, pFrame->mtcw);
+  int nBad = 0;
+
+  for (int i = 0; i < 4; ++i)
+  {
+    nBad = 0;
+    poseVertex->setEstimate(se3);
+    graph.initializeOptimization(0);
+    graph.optimize(10);
+
+    /// 寻找超出要求的误差边
+    for (auto &item : monoEdges)
+    {
+      auto &edge = item.second;
+      const auto &octave = pFrame->mvFeatsLeft[item.first].octave;
+      float sigma2 = pFrame->getScaledFactor2(octave);
+      if (!inLier[item.first])
+      {
+        edge->computeError();
+      }
+      auto error = edge->chi2();
+      if (edge->chi2() > 5.991 * sigma2)
+      {
+        inLier[item.first] = false;
+        edge->setLevel(1);
+        ++nBad;
+      }
+      else
+      {
+        inLier[item.first] = true;
+        edge->setLevel(0);
+      }
+      if (i == 2)
+        edge->setRobustKernel(nullptr);
     }
-    for (std::size_t idx = 0; idx < inLier.size(); ++idx) {
-        if (!inLier[idx])
-            pFrame->mvpMapPoints[idx] = nullptr;
-        else {
-            pFrame->mvpMapPoints[idx]->addInlierInTrack();
-        }
+    for (auto &item : stereoEdges)
+    {
+      auto &edge = item.second;
+      const auto &octave = pFrame->mvFeatsLeft[item.first].octave;
+      float sigma2 = pFrame->getScaledFactor2(octave);
+      if (!inLier[item.first])
+      {
+        edge->computeError();
+      }
+      auto error = edge->chi2();
+      if (edge->chi2() > 7.815 * sigma2)
+      {
+        inLier[item.first] = false;
+        edge->setLevel(1);
+        ++nBad;
+      }
+      else
+      {
+        inLier[item.first] = true;
+        edge->setLevel(0);
+      }
+      if (i == 2)
+        edge->setRobustKernel(nullptr);
     }
-    auto se3Optimized = poseVertex->estimate();
-    pFrame->setPose(Converter::ConvertSE32Tcw(se3Optimized));
-    return edges - nBad;
+  }
+  for (std::size_t idx = 0; idx < inLier.size(); ++idx)
+  {
+    if (!inLier[idx])
+      continue;
+    bool isPositive = false;
+    auto pointUV = pFrame->project2UV(mapPointPoses[idx], isPositive);
+    if (!isPositive || pointUV.x > pFrame->mfMaxU || pointUV.x < 0 || pointUV.y > pFrame->mfMaxV || pointUV.y < 0)
+    {
+      inLier[idx] = false;
+      ++nBad;
+    }
+  }
+  for (std::size_t idx = 0; idx < inLier.size(); ++idx)
+  {
+    if (!inLier[idx])
+      pFrame->mvpMapPoints[idx] = nullptr;
+    else
+    {
+      pFrame->mvpMapPoints[idx]->addInlierInTrack();
+    }
+  }
+  auto se3Optimized = poseVertex->estimate();
+  pFrame->setPose(Converter::ConvertSE32Tcw(se3Optimized));
+  return edges - nBad;
 }
 
 /**
@@ -198,195 +222,223 @@ int Optimizer::OptimizePoseOnly(Frame::SharedPtr pFrame) {
  *      2. 在第一阶段的优化前，判断是否需要停止BA，如果停止，直接return
  *      3. 在第二阶段的优化前，判断是否需要停止BA，如果停止，直接跳过第二次优化，直接进行下一步操作
  */
-void Optimizer::OptimizeLocalMap(KeyFramePtr pkframe, bool &isStop) {
-    g2o::SparseOptimizer optimizer;
-    auto lm = new g2o::OptimizationAlgorithmLevenberg(std::make_unique<BSSE3>(std::make_unique<LSSE3Eigen>()));
-    optimizer.setAlgorithm(lm);
-    optimizer.setForceStopFlag(&isStop);
+void Optimizer::OptimizeLocalMap(KeyFramePtr pkframe, bool &isStop)
+{
+  g2o::SparseOptimizer optimizer;
+  auto lm = new g2o::OptimizationAlgorithmLevenberg(std::make_unique<BSSE3>(std::make_unique<LSSE3Eigen>()));
+  optimizer.setAlgorithm(lm);
+  optimizer.setForceStopFlag(&isStop);
 
-    auto vNoFixedGroup = pkframe->getConnectedKfs(0);
-    vNoFixedGroup.push_back(pkframe);
+  auto vNoFixedGroup = pkframe->getConnectedKfs(0);
+  vNoFixedGroup.push_back(pkframe);
 
-    std::map<MapPointPtr, g2o::VertexPointXYZ *> mLandMarks;
-    std::map<KeyFramePtr, g2o::VertexSE3Expmap *> mNoFixedFrames;
-    std::map<KeyFramePtr, g2o::VertexSE3Expmap *> mFixedFrames;
-    int nFrames = KeyFrame::getMaxID() + 1;
-    int edgeID = 0;
-    EdgeDB edgeDB;
+  std::map<MapPointPtr, g2o::VertexPointXYZ *> mLandMarks;
+  std::map<KeyFramePtr, g2o::VertexSE3Expmap *> mNoFixedFrames;
+  std::map<KeyFramePtr, g2o::VertexSE3Expmap *> mFixedFrames;
+  int nFrames = KeyFrame::getMaxID() + 1;
+  int edgeID = 0;
+  EdgeDB edgeDB;
 
-    // 建立非固定顶点数据库和地图点顶点数据库
-    std::set<MapPointPtr> sGroupMps;
-    for (auto &pNoFixed : vNoFixedGroup) {
+  // 建立非固定顶点数据库和地图点顶点数据库
+  std::set<MapPointPtr> sGroupMps;
+  for (auto &pNoFixed : vNoFixedGroup)
+  {
+    cv::Mat Rcw, tcw;
+    pNoFixed->getPose(Rcw, tcw);
+    auto vFrame = new g2o::VertexSE3Expmap();
+    vFrame->setId(pNoFixed->getID());
+    vFrame->setEstimate(Converter::ConvertTcw2SE3(Rcw, tcw));
+    vFrame->setFixed(pNoFixed->getID() == 0);
+    optimizer.addVertex(vFrame);
+    mNoFixedFrames.insert({pNoFixed, vFrame});
+    auto vpMps = pNoFixed->getMapPoints();
+    for (auto &pMp : vpMps)
+    {
+      if (pMp && !pMp->isBad())
+        sGroupMps.insert(pMp);
+    }
+  }
+  for (auto &pMp : sGroupMps)
+  {
+    auto vPoint = new g2o::VertexPointXYZ();
+    vPoint->setId(pMp->getID() + nFrames);
+    vPoint->setMarginalized(true);
+    vPoint->setEstimate(Converter::ConvertPw2Vector3(pMp->getPos()));
+    optimizer.addVertex(vPoint);
+    mLandMarks.insert({pMp, vPoint});
+
+    auto pMpObs = pMp->getObservation();
+    for (auto &obs : pMpObs)
+    {
+      g2o::VertexSE3Expmap *vFrame;
+      auto pkf = obs.first.lock();
+      if (!pkf || pkf->isBad())
+        continue;
+
+      if (mNoFixedFrames.find(pkf) != mNoFixedFrames.end())
+        vFrame = mNoFixedFrames[pkf];
+      else if (mFixedFrames.find(pkf) != mFixedFrames.end())
+        vFrame = mFixedFrames[pkf];
+      else
+      {
         cv::Mat Rcw, tcw;
-        pNoFixed->getPose(Rcw, tcw);
-        auto vFrame = new g2o::VertexSE3Expmap();
-        vFrame->setId(pNoFixed->getID());
+        pkf->getPose(Rcw, tcw);
+        vFrame = new g2o::VertexSE3Expmap();
+        vFrame->setId(pkf->getID());
         vFrame->setEstimate(Converter::ConvertTcw2SE3(Rcw, tcw));
-        vFrame->setFixed(pNoFixed->getID() == 0);
+        vFrame->setFixed(true);
         optimizer.addVertex(vFrame);
-        mNoFixedFrames.insert({pNoFixed, vFrame});
-        auto vpMps = pNoFixed->getMapPoints();
-        for (auto &pMp : vpMps) {
-            if (pMp && !pMp->isBad())
-                sGroupMps.insert(pMp);
-        }
+        mFixedFrames.insert({pkf, vFrame});
+      }
+      double rightU = pkf->getRightU(obs.second);
+      auto &kp = pkf->getLeftKeyPoint(obs.second);
+      auto rk = new g2o::RobustKernelHuber();
+      if (rightU > 0)
+      {
+        rk->setDelta(deltaStereo);
+        auto eStereo = new g2o::EdgeStereoSE3ProjectXYZ();
+        eStereo->setId(edgeID++);
+        eStereo->setInformation(Eigen::Matrix3d::Identity() * pkf->getScaledFactorInv2(kp.octave));
+        eStereo->setVertex(0, vPoint);
+        eStereo->setVertex(1, vFrame);
+        eStereo->fx = Camera::mfFx;
+        eStereo->fy = Camera::mfFy;
+        eStereo->cx = Camera::mfCx;
+        eStereo->cy = Camera::mfCy;
+        eStereo->bf = Camera::mfBf;
+        eStereo->setMeasurement(Eigen::Vector3d(kp.pt.x, kp.pt.y, rightU));
+        eStereo->setRobustKernel(rk);
+        optimizer.addEdge(eStereo);
+        edgeDB.insert({eStereo, std::make_tuple(pMp, pkf, obs.second, false)});
+      }
+      else
+      {
+        rk->setDelta(deltaMono);
+        auto eMono = new g2o::EdgeSE3ProjectXYZ();
+        eMono->setId(edgeID++);
+        eMono->setInformation(Eigen::Matrix2d::Identity() * pkf->getScaledFactorInv(kp.octave));
+        eMono->setVertex(0, vPoint);
+        eMono->setVertex(1, vFrame);
+        eMono->fx = Camera::mfFx;
+        eMono->fy = Camera::mfFy;
+        eMono->cx = Camera::mfCx;
+        eMono->cy = Camera::mfCy;
+        eMono->setMeasurement(Eigen::Vector2d(kp.pt.x, kp.pt.y));
+        eMono->setRobustKernel(rk);
+        optimizer.addEdge(eMono);
+        edgeDB.insert({eMono, std::make_tuple(pMp, pkf, obs.second, true)});
+      }
     }
-    for (auto &pMp : sGroupMps) {
-        auto vPoint = new g2o::VertexPointXYZ();
-        vPoint->setId(pMp->getID() + nFrames);
-        vPoint->setMarginalized(true);
-        vPoint->setEstimate(Converter::ConvertPw2Vector3(pMp->getPos()));
-        optimizer.addVertex(vPoint);
-        mLandMarks.insert({pMp, vPoint});
+  }
+  if (isStop)
+    return;
 
-        auto pMpObs = pMp->getObservation();
-        for (auto &obs : pMpObs) {
-            g2o::VertexSE3Expmap *vFrame;
-            auto pkf = obs.first.lock();
-            if (!pkf || pkf->isBad())
-                continue;
-
-            if (mNoFixedFrames.find(pkf) != mNoFixedFrames.end())
-                vFrame = mNoFixedFrames[pkf];
-            else if (mFixedFrames.find(pkf) != mFixedFrames.end())
-                vFrame = mFixedFrames[pkf];
-            else {
-                cv::Mat Rcw, tcw;
-                pkf->getPose(Rcw, tcw);
-                vFrame = new g2o::VertexSE3Expmap();
-                vFrame->setId(pkf->getID());
-                vFrame->setEstimate(Converter::ConvertTcw2SE3(Rcw, tcw));
-                vFrame->setFixed(true);
-                optimizer.addVertex(vFrame);
-                mFixedFrames.insert({pkf, vFrame});
-            }
-            double rightU = pkf->getRightU(obs.second);
-            auto &kp = pkf->getLeftKeyPoint(obs.second);
-            auto rk = new g2o::RobustKernelHuber();
-            if (rightU > 0) {
-                rk->setDelta(deltaStereo);
-                auto eStereo = new g2o::EdgeStereoSE3ProjectXYZ();
-                eStereo->setId(edgeID++);
-                eStereo->setInformation(Eigen::Matrix3d::Identity() * pkf->getScaledFactorInv2(kp.octave));
-                eStereo->setVertex(0, vPoint);
-                eStereo->setVertex(1, vFrame);
-                eStereo->fx = Camera::mfFx;
-                eStereo->fy = Camera::mfFy;
-                eStereo->cx = Camera::mfCx;
-                eStereo->cy = Camera::mfCy;
-                eStereo->bf = Camera::mfBf;
-                eStereo->setMeasurement(Eigen::Vector3d(kp.pt.x, kp.pt.y, rightU));
-                eStereo->setRobustKernel(rk);
-                optimizer.addEdge(eStereo);
-                edgeDB.insert({eStereo, std::make_tuple(pMp, pkf, obs.second, false)});
-            } else {
-                rk->setDelta(deltaMono);
-                auto eMono = new g2o::EdgeSE3ProjectXYZ();
-                eMono->setId(edgeID++);
-                eMono->setInformation(Eigen::Matrix2d::Identity() * pkf->getScaledFactorInv(kp.octave));
-                eMono->setVertex(0, vPoint);
-                eMono->setVertex(1, vFrame);
-                eMono->fx = Camera::mfFx;
-                eMono->fy = Camera::mfFy;
-                eMono->cx = Camera::mfCx;
-                eMono->cy = Camera::mfCy;
-                eMono->setMeasurement(Eigen::Vector2d(kp.pt.x, kp.pt.y));
-                eMono->setRobustKernel(rk);
-                optimizer.addEdge(eMono);
-                edgeDB.insert({eMono, std::make_tuple(pMp, pkf, obs.second, true)});
-            }
-        }
+  optimizer.initializeOptimization(0);
+  optimizer.optimize(5);
+  if (!isStop)
+  {
+    for (auto &item : edgeDB)
+    {
+      auto pkf = std::get<1>(item.second);
+      auto edge = item.first;
+      bool isMono = std::get<3>(item.second);
+      if (isMono)
+      {
+        auto edge = dynamic_cast<g2o::EdgeSE3ProjectXYZ *>(item.first);
+        if (edge->chi2() > 5.991 || !edge->isDepthPositive())
+          edge->setLevel(1);
+        edge->setRobustKernel(nullptr);
+      }
+      else
+      {
+        auto edge = dynamic_cast<g2o::EdgeStereoSE3ProjectXYZ *>(item.first);
+        if (edge->chi2() > 7.815 || !edge->isDepthPositive())
+          edge->setLevel(1);
+        edge->setRobustKernel(nullptr);
+      }
     }
-    if (isStop)
-        return;
+    optimizer.initializeOptimization();
+    optimizer.optimize(10);
+  }
 
-    optimizer.initializeOptimization(0);
-    optimizer.optimize(5);
-    if (!isStop) {
-        for (auto &item : edgeDB) {
-            auto pkf = std::get<1>(item.second);
-            auto edge = item.first;
-            bool isMono = std::get<3>(item.second);
-            if (isMono) {
-                auto edge = dynamic_cast<g2o::EdgeSE3ProjectXYZ *>(item.first);
-                if (edge->chi2() > 5.991 || !edge->isDepthPositive())
-                    edge->setLevel(1);
-                edge->setRobustKernel(nullptr);
-            } else {
-                auto edge = dynamic_cast<g2o::EdgeStereoSE3ProjectXYZ *>(item.first);
-                if (edge->chi2() > 7.815 || !edge->isDepthPositive())
-                    edge->setLevel(1);
-                edge->setRobustKernel(nullptr);
-            }
-        }
-        optimizer.initializeOptimization();
-        optimizer.optimize(10);
+  std::map<KeyFramePtr, std::vector<std::pair<MapPointPtr, std::size_t>>> vToProcess;
+  for (auto &item : edgeDB)
+  {
+    auto &pMp = std::get<0>(item.second);
+    auto &pkf = std::get<1>(item.second);
+    auto &idx = std::get<2>(item.second);
+    bool isMono = std::get<3>(item.second);
+    if (isMono)
+    {
+      auto edge = dynamic_cast<g2o::EdgeSE3ProjectXYZ *>(item.first);
+      edge->computeError();
+      if (edge->chi2() > 5.991 || !edge->isDepthPositive())
+      {
+        vToProcess[pkf].push_back(std::make_pair(pMp, idx));
+      }
+    }
+    else
+    {
+      auto edge = dynamic_cast<g2o::EdgeStereoSE3ProjectXYZ *>(item.first);
+      edge->computeError();
+      if (edge->chi2() > 7.815 || !edge->isDepthPositive())
+      {
+        vToProcess[pkf].push_back(std::make_pair(pMp, idx));
+      }
+    }
+  }
+
+  int nBad = 0;
+  bool bSetAndErase = true;
+  for (auto &item : vToProcess)
+  {
+    int nGoodMp = 0;
+    auto vMps = item.first->getMapPoints();
+    for (auto &pMp : vMps)
+    {
+      if (pMp && !pMp->isBad())
+        ++nGoodMp;
+    }
+    if (item.second.size() / (float)nGoodMp > 0.3)
+      ++nBad;
+  }
+  if (nBad / (vToProcess.size() + 1e-5) > 0.2)
+    bSetAndErase = false;
+
+  if (bSetAndErase)
+  {
+    for (auto &item : vToProcess)
+    {
+      auto pkf = item.first;
+      for (auto &era : item.second)
+      {
+        pkf->setMapPoint(era.second, nullptr);
+        era.first->eraseObservetion(pkf);
+      }
     }
 
-    std::map<KeyFramePtr, std::vector<std::pair<MapPointPtr, std::size_t>>> vToProcess;
-    for (auto &item : edgeDB) {
-        auto &pMp = std::get<0>(item.second);
-        auto &pkf = std::get<1>(item.second);
-        auto &idx = std::get<2>(item.second);
-        bool isMono = std::get<3>(item.second);
-        if (isMono) {
-            auto edge = dynamic_cast<g2o::EdgeSE3ProjectXYZ *>(item.first);
-            edge->computeError();
-            if (edge->chi2() > 5.991 || !edge->isDepthPositive()) {
-                vToProcess[pkf].push_back(std::make_pair(pMp, idx));
-            }
-        } else {
-            auto edge = dynamic_cast<g2o::EdgeStereoSE3ProjectXYZ *>(item.first);
-            edge->computeError();
-            if (edge->chi2() > 7.815 || !edge->isDepthPositive()) {
-                vToProcess[pkf].push_back(std::make_pair(pMp, idx));
-            }
-        }
+    for (auto &frame : mNoFixedFrames)
+    {
+      auto &pkf = frame.first;
+      auto &vertex = frame.second;
+      cv::Mat Tcw = Converter::ConvertSE32Tcw(vertex->estimate());
+      if (pkf && !pkf->isBad())
+        pkf->setPose(Tcw);
     }
-
-    int nBad = 0;
-    bool bSetAndErase = true;
-    for (auto &item : vToProcess) {
-        int nGoodMp = 0;
-        auto vMps = item.first->getMapPoints();
-        for (auto &pMp : vMps) {
-            if (pMp && !pMp->isBad())
-                ++nGoodMp;
-        }
-        if (item.second.size() / (float)nGoodMp > 0.3)
-            ++nBad;
+    for (auto &landmark : mLandMarks)
+    {
+      auto &pMp = landmark.first;
+      auto &vertex = landmark.second;
+      cv::Mat pos = Converter::ConvertVector32Pw(vertex->estimate());
+      if (pMp && !pMp->isBad() && pMp->isInMap())
+      {
+        pMp->setPos(pos);
+        pMp->updateDescriptor();
+        pMp->updateNormalAndDepth();
+      }
     }
-    if (nBad / (vToProcess.size() + 1e-5) > 0.2)
-        bSetAndErase = false;
-
-    if (bSetAndErase) {
-        for (auto &item : vToProcess) {
-            auto pkf = item.first;
-            for (auto &era : item.second) {
-                pkf->setMapPoint(era.second, nullptr);
-                era.first->eraseObservetion(pkf);
-            }
-        }
-
-        for (auto &frame : mNoFixedFrames) {
-            auto &pkf = frame.first;
-            auto &vertex = frame.second;
-            cv::Mat Tcw = Converter::ConvertSE32Tcw(vertex->estimate());
-            if (pkf && !pkf->isBad())
-                pkf->setPose(Tcw);
-        }
-        for (auto &landmark : mLandMarks) {
-            auto &pMp = landmark.first;
-            auto &vertex = landmark.second;
-            cv::Mat pos = Converter::ConvertVector32Pw(vertex->estimate());
-            if (pMp && !pMp->isBad() && pMp->isInMap()) {
-                pMp->setPos(pos);
-                pMp->updateDescriptor();
-                pMp->updateNormalAndDepth();
-            }
-        }
-        KeyFrame::updateConnections(pkframe);
-    }
+    KeyFrame::updateConnections(pkframe);
+  }
 }
 
 /**
@@ -409,146 +461,161 @@ void Optimizer::OptimizeLocalMap(KeyFramePtr pkframe, bool &isStop) {
  * @param bFixedScale   是否固定尺度，如果固定尺度，则固定为1
  * @return int  输出优化SIM3的内点数目
  */
-int Optimizer::OptimizeSim3(KeyFramePtr pCurr, KeyFramePtr pMatch, Matches &inLier, Sim3Ret &g2oScm, bool bFixedScale) {
-    auto lm = new g2o::OptimizationAlgorithmLevenberg(std::make_unique<BSSIM3>(std::make_unique<LSSim3Dense>()));
+int Optimizer::OptimizeSim3(KeyFramePtr pCurr, KeyFramePtr pMatch, Matches &inLier, Sim3Ret &g2oScm, bool bFixedScale)
+{
+  auto lm = new g2o::OptimizationAlgorithmLevenberg(std::make_unique<BSSIM3>(std::make_unique<LSSim3Dense>()));
 
-    g2o::SparseOptimizer graph;
-    graph.setAlgorithm(lm);
+  g2o::SparseOptimizer graph;
+  graph.setAlgorithm(lm);
 
-    int vID = 0, eID = 0;
-    g2o::VertexSim3Expmap *vSim3 = new g2o::VertexSim3Expmap();
-    vSim3->setId(vID++);
-    vSim3->setEstimate(Converter::ConvertSim3G2o(g2oScm));
-    vSim3->_fix_scale = bFixedScale;
-    vSim3->_principle_point1[0] = Camera::mfCx;
-    vSim3->_principle_point1[1] = Camera::mfCy;
-    vSim3->_principle_point2[0] = Camera::mfCx;
-    vSim3->_principle_point2[1] = Camera::mfCy;
-    vSim3->_focal_length1[0] = Camera::mfFx;
-    vSim3->_focal_length1[1] = Camera::mfFy;
-    vSim3->_focal_length2[0] = Camera::mfFx;
-    vSim3->_focal_length2[1] = Camera::mfFy;
-    graph.addVertex(vSim3);
+  int vID = 0, eID = 0;
+  g2o::VertexSim3Expmap *vSim3 = new g2o::VertexSim3Expmap();
+  vSim3->setId(vID++);
+  vSim3->setEstimate(Converter::ConvertSim3G2o(g2oScm));
+  vSim3->_fix_scale = bFixedScale;
+  vSim3->_principle_point1[0] = Camera::mfCx;
+  vSim3->_principle_point1[1] = Camera::mfCy;
+  vSim3->_principle_point2[0] = Camera::mfCx;
+  vSim3->_principle_point2[1] = Camera::mfCy;
+  vSim3->_focal_length1[0] = Camera::mfFx;
+  vSim3->_focal_length1[1] = Camera::mfFy;
+  vSim3->_focal_length2[0] = Camera::mfFx;
+  vSim3->_focal_length2[1] = Camera::mfFy;
+  graph.addVertex(vSim3);
 
-    cv::Mat Rcw, tcw, Rmw, tmw;
-    pCurr->getPose(Rcw, tcw);
-    pMatch->getPose(Rmw, tmw);
-    std::vector<g2o::EdgeSim3ProjectXYZ *> vpEdgesMC;
-    std::vector<g2o::EdgeInverseSim3ProjectXYZ *> vpEdgesCM;
-    std::vector<bool> vbIsInlier(inLier.size(), true);
-    for (std::size_t idx = 0; idx < inLier.size(); ++idx) {
-        const auto &match = inLier[idx];
-        const int &cID = match.queryIdx;
-        const int &mID = match.trainIdx;
-        MapPoint::SharedPtr cP = pCurr->getMapPoint(cID);
-        MapPoint::SharedPtr mP = pMatch->getMapPoint(mID);
-        if (!cP || cP->isBad() || !cP->isInMap()) {
-            vbIsInlier[idx] = false;
-            continue;
-        }
-        if (!mP || mP->isBad() || !cP->isInMap()) {
-            vbIsInlier[idx] = false;
-            continue;
-        }
-        cv::Mat cPw = cP->getPos();
-        cv::Mat mPw = mP->getPos();
-        cv::Mat cPc = Rcw * cPw + tcw;
-        cv::Mat mPc = Rmw * mPw + tmw;
-
-        auto vPointC = new g2o::VertexPointXYZ();
-        vPointC->setId(vID++);
-        vPointC->setFixed(true);
-        vPointC->setEstimate(Converter::ConvertPw2Vector3(cPc));
-        graph.addVertex(vPointC);
-
-        auto vPointM = new g2o::VertexPointXYZ();
-        vPointM->setId(vID++);
-        vPointM->setFixed(true);
-        vPointM->setEstimate(Converter::ConvertPw2Vector3(mPc));
-        graph.addVertex(vPointM);
-
-        const auto &ckp = pCurr->getLeftKeyPoint(cID);
-        const auto &mkp = pMatch->getLeftKeyPoint(mID);
-
-        /// 正向投影，回环闭合关键帧投影到当前关键帧
-        auto e1 = new g2o::EdgeSim3ProjectXYZ();
-        auto rk1 = new g2o::RobustKernelHuber();
-        rk1->setDelta(deltaSim3);
-        e1->setVertex(0, vPointM);
-        e1->setVertex(1, vSim3);
-        e1->setMeasurement(g2o::Vector2((double)ckp.pt.x, (double)ckp.pt.y));
-        e1->setInformation(Eigen::Matrix2d::Identity() * pCurr->getScaledFactorInv2(ckp.octave));
-        e1->setRobustKernel(rk1);
-
-        /// 反向投影，当前关键帧投影到回环闭合关键帧
-        auto e2 = new g2o::EdgeInverseSim3ProjectXYZ();
-        auto rk2 = new g2o::RobustKernelHuber();
-        rk2->setDelta(deltaSim3);
-        e2->setVertex(0, vPointC);
-        e2->setVertex(1, vSim3);
-        e2->setMeasurement(g2o::Vector2((double)mkp.pt.x, (double)mkp.pt.y));
-        e2->setInformation(Eigen::Matrix2d::Identity() * pCurr->getScaledFactorInv2(mkp.octave));
-        e2->setRobustKernel(rk2);
-
-        graph.addEdge(e1);
-        graph.addEdge(e2);
-        vpEdgesMC.push_back(e1);
-        vpEdgesCM.push_back(e2);
+  cv::Mat Rcw, tcw, Rmw, tmw;
+  pCurr->getPose(Rcw, tcw);
+  pMatch->getPose(Rmw, tmw);
+  std::vector<g2o::EdgeSim3ProjectXYZ *> vpEdgesMC;
+  std::vector<g2o::EdgeInverseSim3ProjectXYZ *> vpEdgesCM;
+  std::vector<bool> vbIsInlier(inLier.size(), true);
+  for (std::size_t idx = 0; idx < inLier.size(); ++idx)
+  {
+    const auto &match = inLier[idx];
+    const int &cID = match.queryIdx;
+    const int &mID = match.trainIdx;
+    MapPoint::SharedPtr cP = pCurr->getMapPoint(cID);
+    MapPoint::SharedPtr mP = pMatch->getMapPoint(mID);
+    if (!cP || cP->isBad() || !cP->isInMap())
+    {
+      vbIsInlier[idx] = false;
+      continue;
     }
+    if (!mP || mP->isBad() || !cP->isInMap())
+    {
+      vbIsInlier[idx] = false;
+      continue;
+    }
+    cv::Mat cPw = cP->getPos();
+    cv::Mat mPw = mP->getPos();
+    cv::Mat cPc = Rcw * cPw + tcw;
+    cv::Mat mPc = Rmw * mPw + tmw;
 
-    std::vector<cv::DMatch> newInlier;
-    for (std::size_t idx = 0; idx < vbIsInlier.size(); ++idx) {
-        if (vbIsInlier[idx]) {
-            newInlier.push_back(inLier[idx]);
-        }
-    }
-    std::vector<bool> vbNewIsInlier(newInlier.size(), true);
-    graph.initializeOptimization(0);
-    graph.optimize(5);
+    auto vPointC = new g2o::VertexPointXYZ();
+    vPointC->setId(vID++);
+    vPointC->setFixed(true);
+    vPointC->setEstimate(Converter::ConvertPw2Vector3(cPc));
+    graph.addVertex(vPointC);
 
-    /// 移除误差较大的边
-    int nBad = 0;
-    int nEdges = vpEdgesCM.size();
-    for (int i = 0; i < nEdges; ++i) {
-        auto &e1 = vpEdgesMC[i];
-        auto &e2 = vpEdgesCM[i];
-        if (e1->chi2() > 9.210 || e2->chi2() > 9.210) {
-            graph.removeEdge(e1);
-            graph.removeEdge(e2);
-            e1 = nullptr;
-            e2 = nullptr;
-            ++nBad;
-        }
-    }
+    auto vPointM = new g2o::VertexPointXYZ();
+    vPointM->setId(vID++);
+    vPointM->setFixed(true);
+    vPointM->setEstimate(Converter::ConvertPw2Vector3(mPc));
+    graph.addVertex(vPointM);
 
-    if (nEdges - nBad < 20)
-        return 0;
-    int iteration = nBad ? 10 : 5;
-    graph.initializeOptimization();
-    graph.optimize(iteration);
-    int nInliers = 0;
-    for (int i = 0; i < nEdges; ++i) {
-        const auto &e1 = vpEdgesMC[i];
-        const auto &e2 = vpEdgesCM[i];
-        if (!e1 || !e2) {
-            vbNewIsInlier[i] = false;
-            continue;
-        }
-        if (e1->chi2() <= 9.210 && e2->chi2() <= 9.210) {
-            ++nInliers;
-        } else {
-            vbNewIsInlier[i] = false;
-        }
+    const auto &ckp = pCurr->getLeftKeyPoint(cID);
+    const auto &mkp = pMatch->getLeftKeyPoint(mID);
+
+    /// 正向投影，回环闭合关键帧投影到当前关键帧
+    auto e1 = new g2o::EdgeSim3ProjectXYZ();
+    auto rk1 = new g2o::RobustKernelHuber();
+    rk1->setDelta(deltaSim3);
+    e1->setVertex(0, vPointM);
+    e1->setVertex(1, vSim3);
+    e1->setMeasurement(g2o::Vector2((double)ckp.pt.x, (double)ckp.pt.y));
+    e1->setInformation(Eigen::Matrix2d::Identity() * pCurr->getScaledFactorInv2(ckp.octave));
+    e1->setRobustKernel(rk1);
+
+    /// 反向投影，当前关键帧投影到回环闭合关键帧
+    auto e2 = new g2o::EdgeInverseSim3ProjectXYZ();
+    auto rk2 = new g2o::RobustKernelHuber();
+    rk2->setDelta(deltaSim3);
+    e2->setVertex(0, vPointC);
+    e2->setVertex(1, vSim3);
+    e2->setMeasurement(g2o::Vector2((double)mkp.pt.x, (double)mkp.pt.y));
+    e2->setInformation(Eigen::Matrix2d::Identity() * pCurr->getScaledFactorInv2(mkp.octave));
+    e2->setRobustKernel(rk2);
+
+    graph.addEdge(e1);
+    graph.addEdge(e2);
+    vpEdgesMC.push_back(e1);
+    vpEdgesCM.push_back(e2);
+  }
+
+  std::vector<cv::DMatch> newInlier;
+  for (std::size_t idx = 0; idx < vbIsInlier.size(); ++idx)
+  {
+    if (vbIsInlier[idx])
+    {
+      newInlier.push_back(inLier[idx]);
     }
-    std::vector<cv::DMatch> vNewNewInlier;
-    for (std::size_t idx = 0; idx < newInlier.size(); ++idx) {
-        if (vbNewIsInlier[idx]) {
-            vNewNewInlier.push_back(newInlier[idx]);
-        }
+  }
+  std::vector<bool> vbNewIsInlier(newInlier.size(), true);
+  graph.initializeOptimization(0);
+  graph.optimize(5);
+
+  /// 移除误差较大的边
+  int nBad = 0;
+  int nEdges = vpEdgesCM.size();
+  for (int i = 0; i < nEdges; ++i)
+  {
+    auto &e1 = vpEdgesMC[i];
+    auto &e2 = vpEdgesCM[i];
+    if (e1->chi2() > 9.210 || e2->chi2() > 9.210)
+    {
+      graph.removeEdge(e1);
+      graph.removeEdge(e2);
+      e1 = nullptr;
+      e2 = nullptr;
+      ++nBad;
     }
-    std::swap(vNewNewInlier, inLier);
-    Converter::ConvertG2o2Sim3(vSim3->estimate()).copyTo(g2oScm);
-    return nInliers;
+  }
+
+  if (nEdges - nBad < 20)
+    return 0;
+  int iteration = nBad ? 10 : 5;
+  graph.initializeOptimization();
+  graph.optimize(iteration);
+  int nInliers = 0;
+  for (int i = 0; i < nEdges; ++i)
+  {
+    const auto &e1 = vpEdgesMC[i];
+    const auto &e2 = vpEdgesCM[i];
+    if (!e1 || !e2)
+    {
+      vbNewIsInlier[i] = false;
+      continue;
+    }
+    if (e1->chi2() <= 9.210 && e2->chi2() <= 9.210)
+    {
+      ++nInliers;
+    }
+    else
+    {
+      vbNewIsInlier[i] = false;
+    }
+  }
+  std::vector<cv::DMatch> vNewNewInlier;
+  for (std::size_t idx = 0; idx < newInlier.size(); ++idx)
+  {
+    if (vbNewIsInlier[idx])
+    {
+      vNewNewInlier.push_back(newInlier[idx]);
+    }
+  }
+  std::swap(vNewNewInlier, inLier);
+  Converter::ConvertG2o2Sim3(vSim3->estimate()).copyTo(g2oScm);
+  return nInliers;
 }
 
 /**
@@ -558,18 +625,18 @@ int Optimizer::OptimizeSim3(KeyFramePtr pCurr, KeyFramePtr pMatch, Matches &inLi
  * @param tcwCV 输入的tcw
  * @return g2o::SE3Quat 输出的SE3
  */
-g2o::SE3Quat Converter::ConvertTcw2SE3(const cv::Mat &RcwCV, const cv::Mat &tcwCV) {
-    Eigen::Matrix3d RcwEigen;
-    Eigen::Vector3d tcwEigen;
-    RcwEigen << (double)RcwCV.at<float>(0, 0), (double)RcwCV.at<float>(0, 1), (double)RcwCV.at<float>(0, 2),
-        (double)RcwCV.at<float>(1, 0), (double)RcwCV.at<float>(1, 1), (double)RcwCV.at<float>(1, 2),
-        (double)RcwCV.at<float>(2, 0), (double)RcwCV.at<float>(2, 1), (double)RcwCV.at<float>(2, 2);
-    tcwEigen.x() = (double)tcwCV.at<float>(0, 0);
-    tcwEigen.y() = (double)tcwCV.at<float>(1, 0);
-    tcwEigen.z() = (double)tcwCV.at<float>(2, 0);
-    Eigen::Quaterniond qcwEigen(RcwEigen);
-    qcwEigen.normalize();
-    return g2o::SE3Quat(qcwEigen, tcwEigen);
+g2o::SE3Quat Converter::ConvertTcw2SE3(const cv::Mat &RcwCV, const cv::Mat &tcwCV)
+{
+  Eigen::Matrix3d RcwEigen;
+  Eigen::Vector3d tcwEigen;
+  RcwEigen << (double)RcwCV.at<float>(0, 0), (double)RcwCV.at<float>(0, 1), (double)RcwCV.at<float>(0, 2), (double)RcwCV.at<float>(1, 0),
+      (double)RcwCV.at<float>(1, 1), (double)RcwCV.at<float>(1, 2), (double)RcwCV.at<float>(2, 0), (double)RcwCV.at<float>(2, 1), (double)RcwCV.at<float>(2, 2);
+  tcwEigen.x() = (double)tcwCV.at<float>(0, 0);
+  tcwEigen.y() = (double)tcwCV.at<float>(1, 0);
+  tcwEigen.z() = (double)tcwCV.at<float>(2, 0);
+  Eigen::Quaterniond qcwEigen(RcwEigen);
+  qcwEigen.normalize();
+  return g2o::SE3Quat(qcwEigen, tcwEigen);
 }
 
 /**
@@ -578,27 +645,28 @@ g2o::SE3Quat Converter::ConvertTcw2SE3(const cv::Mat &RcwCV, const cv::Mat &tcwC
  * @param SE3   输入的g2o类型的位姿矩阵
  * @return cv::Mat 输出的OpenCV类型的位姿矩阵
  */
-cv::Mat Converter::ConvertSE32Tcw(const g2o::SE3Quat &SE3) {
-    cv::Mat Tcw(4, 4, CV_32F);
-    Tcw.at<float>(0, 0) = (float)SE3.rotation().matrix()(0, 0);
-    Tcw.at<float>(0, 1) = (float)SE3.rotation().matrix()(0, 1);
-    Tcw.at<float>(0, 2) = (float)SE3.rotation().matrix()(0, 2);
-    Tcw.at<float>(1, 0) = (float)SE3.rotation().matrix()(1, 0);
-    Tcw.at<float>(1, 1) = (float)SE3.rotation().matrix()(1, 1);
-    Tcw.at<float>(1, 2) = (float)SE3.rotation().matrix()(1, 2);
-    Tcw.at<float>(2, 0) = (float)SE3.rotation().matrix()(2, 0);
-    Tcw.at<float>(2, 1) = (float)SE3.rotation().matrix()(2, 1);
-    Tcw.at<float>(2, 2) = (float)SE3.rotation().matrix()(2, 2);
+cv::Mat Converter::ConvertSE32Tcw(const g2o::SE3Quat &SE3)
+{
+  cv::Mat Tcw(4, 4, CV_32F);
+  Tcw.at<float>(0, 0) = (float)SE3.rotation().matrix()(0, 0);
+  Tcw.at<float>(0, 1) = (float)SE3.rotation().matrix()(0, 1);
+  Tcw.at<float>(0, 2) = (float)SE3.rotation().matrix()(0, 2);
+  Tcw.at<float>(1, 0) = (float)SE3.rotation().matrix()(1, 0);
+  Tcw.at<float>(1, 1) = (float)SE3.rotation().matrix()(1, 1);
+  Tcw.at<float>(1, 2) = (float)SE3.rotation().matrix()(1, 2);
+  Tcw.at<float>(2, 0) = (float)SE3.rotation().matrix()(2, 0);
+  Tcw.at<float>(2, 1) = (float)SE3.rotation().matrix()(2, 1);
+  Tcw.at<float>(2, 2) = (float)SE3.rotation().matrix()(2, 2);
 
-    Tcw.at<float>(0, 3) = (float)SE3.translation().x();
-    Tcw.at<float>(1, 3) = (float)SE3.translation().y();
-    Tcw.at<float>(2, 3) = (float)SE3.translation().z();
+  Tcw.at<float>(0, 3) = (float)SE3.translation().x();
+  Tcw.at<float>(1, 3) = (float)SE3.translation().y();
+  Tcw.at<float>(2, 3) = (float)SE3.translation().z();
 
-    Tcw.at<float>(3, 0) = 0.0f;
-    Tcw.at<float>(3, 1) = 0.0f;
-    Tcw.at<float>(3, 2) = 0.0f;
-    Tcw.at<float>(3, 3) = 1.0f;
-    return Tcw;
+  Tcw.at<float>(3, 0) = 0.0f;
+  Tcw.at<float>(3, 1) = 0.0f;
+  Tcw.at<float>(3, 2) = 0.0f;
+  Tcw.at<float>(3, 3) = 1.0f;
+  return Tcw;
 }
 
 /**
@@ -607,11 +675,12 @@ cv::Mat Converter::ConvertSE32Tcw(const g2o::SE3Quat &SE3) {
  * @param Pw 输入的cv::Mat类型的Pw
  * @return g2o::Vector3 输出的g2o::Vector3类型的Pw
  */
-g2o::Vector3 Converter::ConvertPw2Vector3(const cv::Mat &Pw) {
-    float x = Pw.at<float>(0);
-    float y = Pw.at<float>(1);
-    float z = Pw.at<float>(2);
-    return g2o::Vector3((double)x, (double)y, (double)z);
+g2o::Vector3 Converter::ConvertPw2Vector3(const cv::Mat &Pw)
+{
+  float x = Pw.at<float>(0);
+  float y = Pw.at<float>(1);
+  float z = Pw.at<float>(2);
+  return g2o::Vector3((double)x, (double)y, (double)z);
 }
 
 /**
@@ -620,11 +689,12 @@ g2o::Vector3 Converter::ConvertPw2Vector3(const cv::Mat &Pw) {
  * @param Pw 输入的g2o::Vector3类型的Pw
  * @return cv::Mat 输出的cv::Mat类型的Pw
  */
-cv::Mat Converter::ConvertVector32Pw(const g2o::Vector3 &Pw) {
-    float x = Pw[0];
-    float y = Pw[1];
-    float z = Pw[2];
-    return (cv::Mat_<float>(3, 1) << x, y, z);
+cv::Mat Converter::ConvertVector32Pw(const g2o::Vector3 &Pw)
+{
+  float x = Pw[0];
+  float y = Pw[1];
+  float z = Pw[2];
+  return (cv::Mat_<float>(3, 1) << x, y, z);
 }
 
 /**
@@ -633,15 +703,18 @@ cv::Mat Converter::ConvertVector32Pw(const g2o::Vector3 &Pw) {
  * @param data 输入的计算分位数的数据(排序好的)
  * @return double 输出的3/4分位数的值
  */
-double Optimizer::ComputeThirdQuartile(const std::vector<double> &data) {
-    std::size_t N = data.size();
-    assert(N > 0);
-    std::size_t targetId = std::floor((N - 1) * 0.75);
-    double remainder = (N - 1) * 0.75 - targetId;
-    if (remainder == 0) {
-        return data[targetId];
-    } else
-        return data[targetId] * (1.0 - remainder) + remainder * (data[targetId + 1]);
+double Optimizer::ComputeThirdQuartile(const std::vector<double> &data)
+{
+  std::size_t N = data.size();
+  assert(N > 0);
+  std::size_t targetId = std::floor((N - 1) * 0.75);
+  double remainder = (N - 1) * 0.75 - targetId;
+  if (remainder == 0)
+  {
+    return data[targetId];
+  }
+  else
+    return data[targetId] * (1.0 - remainder) + remainder * (data[targetId + 1]);
 }
 
 /**
@@ -670,168 +743,180 @@ double Optimizer::ComputeThirdQuartile(const std::vector<double> &data) {
  * @param mCorrectedG2oScw           输入的经过位姿矫正的sim3矩阵，顶点定义时使用
  * @param bFixedScale       输入的是否固定尺度标识
  */
-void Optimizer::optimizeEssentialGraph(const LoopConnection &mLoopConnections, MapPtr mpMap, KeyFramePtr pLoopKf,
-                                       KeyFramePtr pCurrKf, const int &graphTh, const KeyFrameAndSim3 &mCorrectedG2oScw,
-                                       const KeyFrameAndSim3 &mNoCorrectedG2oScw, bool bFixScale) {
-    /// step1: 构建优化器
-    auto lm = new g2o::OptimizationAlgorithmLevenberg(std::make_unique<BSSIM3>(std::make_unique<LSSim3Eigen>()));
-    g2o::SparseOptimizer optimizer;
-    optimizer.setAlgorithm(lm);
-    // optimizer.setVerbose(true);
+void Optimizer::optimizeEssentialGraph(const LoopConnection &mLoopConnections, MapPtr mpMap, KeyFramePtr pLoopKf, KeyFramePtr pCurrKf, const int &graphTh,
+                                       const KeyFrameAndSim3 &mCorrectedG2oScw, const KeyFrameAndSim3 &mNoCorrectedG2oScw, bool bFixScale)
+{
+  /// step1: 构建优化器
+  auto lm = new g2o::OptimizationAlgorithmLevenberg(std::make_unique<BSSIM3>(std::make_unique<LSSim3Eigen>()));
+  g2o::SparseOptimizer optimizer;
+  optimizer.setAlgorithm(lm);
+  // optimizer.setVerbose(true);
 
-    /// step2: 添加关键帧顶点
-    auto eInformation = Eigen::Matrix<double, 7, 7>::Identity();
-    auto correctedEndIter = mCorrectedG2oScw.end();
-    auto noCorrectedEndIter = mNoCorrectedG2oScw.end();
-    std::size_t nMaxID = KeyFrame::getMaxID();
-    auto vAllKeyFrames = mpMap->getAllKeyFrames();
-    std::vector<KeyFramePtr> vKeyFrames(nMaxID + 1, nullptr);
-    std::vector<g2o::Sim3> vScwg(nMaxID + 1); ///< 本质图优化前的sim3矩阵
-    std::vector<Sim3Ret> vScw(nMaxID + 1);    ///< 本质图优化前的sim3矩阵
-    std::vector<Sim3Ret> vG2oSwc(nMaxID + 1); ///< 本质图优化后的sim3矩阵
-    std::vector<g2o::VertexSim3Expmap *> vpSim3Vertexes(nMaxID + 1, nullptr);
-    int vNum = 0;
-    for (auto &pKf : vAllKeyFrames) {
-        if (!pKf || pKf->isBad())
-            continue;
-        int vID = pKf->getID();
-        vKeyFrames[vID] = pKf;
+  /// step2: 添加关键帧顶点
+  auto eInformation = Eigen::Matrix<double, 7, 7>::Identity();
+  auto correctedEndIter = mCorrectedG2oScw.end();
+  auto noCorrectedEndIter = mNoCorrectedG2oScw.end();
+  std::size_t nMaxID = KeyFrame::getMaxID();
+  auto vAllKeyFrames = mpMap->getAllKeyFrames();
+  std::vector<KeyFramePtr> vKeyFrames(nMaxID + 1, nullptr);
+  std::vector<g2o::Sim3> vScwg(nMaxID + 1); ///< 本质图优化前的sim3矩阵
+  std::vector<Sim3Ret> vScw(nMaxID + 1);    ///< 本质图优化前的sim3矩阵
+  std::vector<Sim3Ret> vG2oSwc(nMaxID + 1); ///< 本质图优化后的sim3矩阵
+  std::vector<g2o::VertexSim3Expmap *> vpSim3Vertexes(nMaxID + 1, nullptr);
+  int vNum = 0;
+  for (auto &pKf : vAllKeyFrames)
+  {
+    if (!pKf || pKf->isBad())
+      continue;
+    int vID = pKf->getID();
+    vKeyFrames[vID] = pKf;
 
-        Sim3Ret Siw;
-        if (mCorrectedG2oScw.find(pKf) != correctedEndIter) {
-            Siw = mCorrectedG2oScw.at(pKf);
-        } else {
-            cv::Mat Rcw, tcw;
-            pKf->getPose(Rcw, tcw);
-            Siw = Sim3Ret(Rcw, tcw, 1.f);
-        }
-        g2o::Sim3 Siwg = Converter::ConvertSim3G2o(Siw);
-        auto vi = new g2o::VertexSim3Expmap();
-        vi->setId(vID);
-        vi->_fix_scale = bFixScale;
-        vi->setEstimate(Siwg);
-        vScwg[vID] = Siwg;
-        vScw[vID] = Siw;
-        vpSim3Vertexes[vID] = vi;
-        if (vID == pLoopKf->getID())
-            vi->setFixed(true);
-        optimizer.addVertex(vi);
-        ++vNum;
+    Sim3Ret Siw;
+    if (mCorrectedG2oScw.find(pKf) != correctedEndIter)
+    {
+      Siw = mCorrectedG2oScw.at(pKf);
     }
-
-    /// step3: 添加观测边
-    std::set<std::pair<std::size_t, std::size_t>> sAlreadyConnected;
-
-    /// step3.1: 添加回环闭合产生新的共视关系
-    int eID = 0;
-    for (const auto &c : mLoopConnections) {
-        auto pkf1 = c.first;
-        auto sConnectedPkf2 = c.second;
-        auto id1 = pkf1->getID();
-        const g2o::Sim3 S1w = vScwg[id1];
-        const g2o::Sim3 Sw1 = S1w.inverse();
-        for (auto &pkf2 : sConnectedPkf2) {
-            if (!pkf2 || pkf2->isBad())
-                continue;
-            int weight = pkf1->getWeight(pkf2);
-            if ((pkf1 != pCurrKf || pkf2 != pLoopKf) && weight < graphTh)
-                continue;
-            auto id2 = pkf2->getID();
-            const g2o::Sim3 S2w = vScwg[id2];
-            const g2o::Sim3 S21 = S2w * Sw1;
-
-            auto e = new g2o::EdgeSim3();
-            e->setVertex(0, vpSim3Vertexes[id1]);
-            e->setVertex(1, vpSim3Vertexes[id2]);
-            e->setMeasurement(S21);
-            e->setId(eID++);
-            e->setInformation(eInformation);
-            optimizer.addEdge(e);
-            sAlreadyConnected.insert({id1, id2});
-        }
+    else
+    {
+      cv::Mat Rcw, tcw;
+      pKf->getPose(Rcw, tcw);
+      Siw = Sim3Ret(Rcw, tcw, 1.f);
     }
+    g2o::Sim3 Siwg = Converter::ConvertSim3G2o(Siw);
+    auto vi = new g2o::VertexSim3Expmap();
+    vi->setId(vID);
+    vi->_fix_scale = bFixScale;
+    vi->setEstimate(Siwg);
+    vScwg[vID] = Siwg;
+    vScw[vID] = Siw;
+    vpSim3Vertexes[vID] = vi;
+    if (vID == pLoopKf->getID())
+      vi->setFixed(true);
+    optimizer.addVertex(vi);
+    ++vNum;
+  }
 
-    /// step3.2: 添加生成树
-    for (std::size_t id1 = 0; id1 <= nMaxID; ++id1) {
-        auto &pkf1 = vKeyFrames[id1];
-        if (!pkf1 || pkf1->isBad())
-            continue;
+  /// step3: 添加观测边
+  std::set<std::pair<std::size_t, std::size_t>> sAlreadyConnected;
 
-        auto pEdgesKFs = pkf1->getLoopEdges();
-        g2o::Sim3 Sw1;
-        if (mNoCorrectedG2oScw.find(pkf1) != noCorrectedEndIter)
-            Sw1 = Converter::ConvertSim3G2o(mNoCorrectedG2oScw.at(pkf1)).inverse();
+  /// step3.1: 添加回环闭合产生新的共视关系
+  int eID = 0;
+  for (const auto &c : mLoopConnections)
+  {
+    auto pkf1 = c.first;
+    auto sConnectedPkf2 = c.second;
+    auto id1 = pkf1->getID();
+    const g2o::Sim3 S1w = vScwg[id1];
+    const g2o::Sim3 Sw1 = S1w.inverse();
+    for (auto &pkf2 : sConnectedPkf2)
+    {
+      if (!pkf2 || pkf2->isBad())
+        continue;
+      int weight = pkf1->getWeight(pkf2);
+      if ((pkf1 != pCurrKf || pkf2 != pLoopKf) && weight < graphTh)
+        continue;
+      auto id2 = pkf2->getID();
+      const g2o::Sim3 S2w = vScwg[id2];
+      const g2o::Sim3 S21 = S2w * Sw1;
+
+      auto e = new g2o::EdgeSim3();
+      e->setVertex(0, vpSim3Vertexes[id1]);
+      e->setVertex(1, vpSim3Vertexes[id2]);
+      e->setMeasurement(S21);
+      e->setId(eID++);
+      e->setInformation(eInformation);
+      optimizer.addEdge(e);
+      sAlreadyConnected.insert({id1, id2});
+    }
+  }
+
+  /// step3.2: 添加生成树
+  for (std::size_t id1 = 0; id1 <= nMaxID; ++id1)
+  {
+    auto &pkf1 = vKeyFrames[id1];
+    if (!pkf1 || pkf1->isBad())
+      continue;
+
+    auto pEdgesKFs = pkf1->getLoopEdges();
+    g2o::Sim3 Sw1;
+    if (mNoCorrectedG2oScw.find(pkf1) != noCorrectedEndIter)
+      Sw1 = Converter::ConvertSim3G2o(mNoCorrectedG2oScw.at(pkf1)).inverse();
+    else
+      Sw1 = vScwg[id1].inverse();
+
+    auto parent = pkf1->getParent().lock();
+    if (parent && !parent->isBad())
+      pEdgesKFs.push_back(parent);
+
+    /// step3.3: 添加共视权重超过graph的边
+    auto vEnssitialKFs = pkf1->getConnectedKfs(100);
+    std::copy(vEnssitialKFs.begin(), vEnssitialKFs.end(), std::back_inserter(pEdgesKFs));
+
+    for (auto &pkf2 : pEdgesKFs)
+    {
+      auto id2 = pkf2->getID();
+      auto pair12 = std::make_pair(id1, id2);
+      if (sAlreadyConnected.find(pair12) == sAlreadyConnected.end())
+      {
+        sAlreadyConnected.insert(pair12);
+        auto e = new g2o::EdgeSim3();
+        g2o::Sim3 S2w;
+        if (mNoCorrectedG2oScw.find(pkf2) != noCorrectedEndIter)
+          S2w = Converter::ConvertSim3G2o(mNoCorrectedG2oScw.at(pkf2));
         else
-            Sw1 = vScwg[id1].inverse();
+          S2w = vScwg[id2];
 
-        auto parent = pkf1->getParent().lock();
-        if (parent && !parent->isBad())
-            pEdgesKFs.push_back(parent);
-
-        /// step3.3: 添加共视权重超过graph的边
-        auto vEnssitialKFs = pkf1->getConnectedKfs(100);
-        std::copy(vEnssitialKFs.begin(), vEnssitialKFs.end(), std::back_inserter(pEdgesKFs));
-
-        for (auto &pkf2 : pEdgesKFs) {
-            auto id2 = pkf2->getID();
-            auto pair12 = std::make_pair(id1, id2);
-            if (sAlreadyConnected.find(pair12) == sAlreadyConnected.end()) {
-                sAlreadyConnected.insert(pair12);
-                auto e = new g2o::EdgeSim3();
-                g2o::Sim3 S2w;
-                if (mNoCorrectedG2oScw.find(pkf2) != noCorrectedEndIter)
-                    S2w = Converter::ConvertSim3G2o(mNoCorrectedG2oScw.at(pkf2));
-                else
-                    S2w = vScwg[id2];
-
-                e->setVertex(0, vpSim3Vertexes[id1]);
-                e->setVertex(1, vpSim3Vertexes[id2]);
-                e->setMeasurement(S2w * Sw1);
-                e->setInformation(eInformation);
-                e->setId(eID++);
-                optimizer.addEdge(e);
-            }
-        }
+        e->setVertex(0, vpSim3Vertexes[id1]);
+        e->setVertex(1, vpSim3Vertexes[id2]);
+        e->setMeasurement(S2w * Sw1);
+        e->setInformation(eInformation);
+        e->setId(eID++);
+        optimizer.addEdge(e);
+      }
     }
-    optimizer.initializeOptimization();
-    optimizer.optimize(20);
+  }
+  optimizer.initializeOptimization();
+  optimizer.optimize(20);
 
-    /// step4: 矫正关键帧位姿
-    auto g2oSwc0 = vpSim3Vertexes[0]->estimate().inverse();
-    for (std::size_t idx = 0; idx <= nMaxID; ++idx) {
-        auto &pVertex = vpSim3Vertexes[idx];
-        if (!pVertex)
-            continue;
-        auto &pKf = vKeyFrames[idx];
-        g2o::Sim3 g2oScwg = pVertex->estimate();
-        Sim3Ret Scw = Converter::ConvertG2o2Sim3(g2oScwg * g2oSwc0);
-        // Sim3Ret Scw = Converter::ConvertG2o2Sim3(g2oScwg);
-        vG2oSwc[idx] = Scw.inv();
-        pKf->setPose(Scw.mRqp, Scw.mtqp / Scw.mfS);
-    }
+  /// step4: 矫正关键帧位姿
+  auto g2oSwc0 = vpSim3Vertexes[0]->estimate().inverse();
+  for (std::size_t idx = 0; idx <= nMaxID; ++idx)
+  {
+    auto &pVertex = vpSim3Vertexes[idx];
+    if (!pVertex)
+      continue;
+    auto &pKf = vKeyFrames[idx];
+    g2o::Sim3 g2oScwg = pVertex->estimate();
+    Sim3Ret Scw = Converter::ConvertG2o2Sim3(g2oScwg * g2oSwc0);
+    // Sim3Ret Scw = Converter::ConvertG2o2Sim3(g2oScwg);
+    vG2oSwc[idx] = Scw.inv();
+    pKf->setPose(Scw.mRqp, Scw.mtqp / Scw.mfS);
+  }
 
-    /// step5: 矫正地图点位置
-    auto vAllMapPoints = mpMap->getAllMapPoints();
-    for (const auto &pMp : vAllMapPoints) {
-        if (!pMp || pMp->isBad())
-            continue;
-        KeyFrame::SharedPtr pCorrectKF;
-        if (pMp->getLoopKF() == pCurrKf){
-            pCorrectKF = pMp->getLoopRefKF();
-            pMp->setLoopRefKF(nullptr);
-        }
-        else
-            pCorrectKF = pMp->getRefKF();
-        if (!pCorrectKF || pCorrectKF->isBad())
-            continue;
-        cv::Mat p3dW = pMp->getPos();
-        std::size_t kfID = pCorrectKF->getID();
-        cv::Mat correctedP3dW = vG2oSwc[kfID] * (vScw[kfID] * p3dW);
-        pMp->setPos(correctedP3dW);
-        pMp->updateDescriptor();
-        pMp->updateNormalAndDepth();
+  /// step5: 矫正地图点位置
+  auto vAllMapPoints = mpMap->getAllMapPoints();
+  for (const auto &pMp : vAllMapPoints)
+  {
+    if (!pMp || pMp->isBad())
+      continue;
+    KeyFrame::SharedPtr pCorrectKF;
+    if (pMp->getLoopKF() == pCurrKf)
+    {
+      pCorrectKF = pMp->getLoopRefKF();
+      pMp->setLoopRefKF(nullptr);
     }
-    mpMap->setUpdate(true);
+    else
+      pCorrectKF = pMp->getRefKF();
+    if (!pCorrectKF || pCorrectKF->isBad())
+      continue;
+    cv::Mat p3dW = pMp->getPos();
+    std::size_t kfID = pCorrectKF->getID();
+    cv::Mat correctedP3dW = vG2oSwc[kfID] * (vScw[kfID] * p3dW);
+    pMp->setPos(correctedP3dW);
+    pMp->updateDescriptor();
+    pMp->updateNormalAndDepth();
+  }
+  mpMap->setUpdate(true);
 }
 
 /**
@@ -846,140 +931,153 @@ void Optimizer::optimizeEssentialGraph(const LoopConnection &mLoopConnections, M
  * @param bStopFlag     输入的停止标志
  * @param bUseRk        输入的核函数标识
  */
-void Optimizer::globalOptimization(const std::vector<KeyFramePtr> &vpKfs, const std::vector<MapPointPtr> &vpMps,
-                                   int nIteration, bool *bStopFlag, bool bUseRk) {
-    g2o::SparseOptimizer optimizer;
-    auto lm = new g2o::OptimizationAlgorithmLevenberg(std::make_unique<BSSE3>(std::make_unique<LSSE3Eigen>()));
-    optimizer.setAlgorithm(lm);
-    if (bStopFlag)
-        optimizer.setForceStopFlag(bStopFlag);
+void Optimizer::globalOptimization(const std::vector<KeyFramePtr> &vpKfs, const std::vector<MapPointPtr> &vpMps, int nIteration, bool *bStopFlag, bool bUseRk)
+{
+  g2o::SparseOptimizer optimizer;
+  auto lm = new g2o::OptimizationAlgorithmLevenberg(std::make_unique<BSSE3>(std::make_unique<LSSE3Eigen>()));
+  optimizer.setAlgorithm(lm);
+  if (bStopFlag)
+    optimizer.setForceStopFlag(bStopFlag);
 
-    std::size_t nMaxKfID = KeyFrame::getMaxID();
-    std::unordered_map<KeyFrame::SharedPtr, g2o::VertexSE3Expmap *> mpFrames;
-    std::unordered_map<MapPoint::SharedPtr, g2o::VertexPointXYZ *> mpLandmarks;
+  std::size_t nMaxKfID = KeyFrame::getMaxID();
+  std::unordered_map<KeyFrame::SharedPtr, g2o::VertexSE3Expmap *> mpFrames;
+  std::unordered_map<MapPoint::SharedPtr, g2o::VertexPointXYZ *> mpLandmarks;
 
-    for (auto pkf : vpKfs) {
-        if (!pkf || pkf->isBad())
-            continue;
-        cv::Mat Rcw, tcw;
-        pkf->getPose(Rcw, tcw);
-        auto pVertex = new g2o::VertexSE3Expmap();
-        std::size_t nFId = pkf->getID();
-        pVertex->setId(nFId);
-        pVertex->setEstimate(Converter::ConvertTcw2SE3(Rcw, tcw));
-        pVertex->setFixed(nFId == 0);
-        optimizer.addVertex(pVertex);
-        mpFrames.insert({pkf, pVertex});
-    }
+  for (auto pkf : vpKfs)
+  {
+    if (!pkf || pkf->isBad())
+      continue;
+    cv::Mat Rcw, tcw;
+    pkf->getPose(Rcw, tcw);
+    auto pVertex = new g2o::VertexSE3Expmap();
+    std::size_t nFId = pkf->getID();
+    pVertex->setId(nFId);
+    pVertex->setEstimate(Converter::ConvertTcw2SE3(Rcw, tcw));
+    pVertex->setFixed(nFId == 0);
+    optimizer.addVertex(pVertex);
+    mpFrames.insert({pkf, pVertex});
+  }
 
-    int nEdgeID = 0;
-    for (auto pMp : vpMps) {
-        if (!pMp || pMp->isBad())
-            continue;
-        auto pVertex = new g2o::VertexPointXYZ();
-        pVertex->setId(pMp->getID() + nMaxKfID + 1);
-        pVertex->setMarginalized(true);
-        pVertex->setEstimate(Converter::ConvertPw2Vector3(pMp->getPos()));
-        optimizer.addVertex(pVertex);
-        mpLandmarks.insert({pMp, pVertex});
-        auto mObservations = pMp->getObservation();
-        for (auto &obs : mObservations) {
-            auto pKf = obs.first.lock();
-            if (!pKf || pKf->isBad())
-                continue;
-            auto iter = mpFrames.find(pKf);
-            if (iter == mpFrames.end())
-                continue;
-            auto pFrame = iter->second;
-            auto &kp = pKf->getLeftKeyPoint(obs.second);
-            auto &rightU = pKf->getRightU(obs.second);
-            if (rightU > 0) {
-                auto pEdgeStereo = new g2o::EdgeStereoSE3ProjectXYZ();
-                pEdgeStereo->fx = Camera::mfFx;
-                pEdgeStereo->fy = Camera::mfFy;
-                pEdgeStereo->cx = Camera::mfCx;
-                pEdgeStereo->cy = Camera::mfCy;
-                pEdgeStereo->bf = Camera::mfBf;
-                pEdgeStereo->setId(nEdgeID++);
-                pEdgeStereo->setVertex(0, pVertex);
-                pEdgeStereo->setVertex(1, pFrame);
-                pEdgeStereo->setMeasurement(Eigen::Vector3d(kp.pt.x, kp.pt.y, rightU));
-                pEdgeStereo->setInformation(Eigen::Matrix3d::Identity() * pKf->getScaledFactorInv2(kp.octave));
-                if (bUseRk) {
-                    auto rk = new g2o::RobustKernelHuber();
-                    rk->setDelta(deltaStereo);
-                    pEdgeStereo->setRobustKernel(rk);
-                }
-                optimizer.addEdge(pEdgeStereo);
-            } else {
-                auto pEdgeMono = new g2o::EdgeSE3ProjectXYZ();
-                pEdgeMono->fx = Camera::mfFx;
-                pEdgeMono->fy = Camera::mfFy;
-                pEdgeMono->cx = Camera::mfCx;
-                pEdgeMono->cy = Camera::mfCy;
-                pEdgeMono->setId(nEdgeID++);
-                pEdgeMono->setVertex(0, pVertex);
-                pEdgeMono->setVertex(1, pFrame);
-                pEdgeMono->setMeasurement(Eigen::Vector2d(kp.pt.x, kp.pt.y));
-                pEdgeMono->setInformation(Eigen::Matrix2d::Identity() * pKf->getScaledFactorInv2(kp.octave));
-                if (bUseRk) {
-                    auto rk = new g2o::RobustKernelHuber();
-                    rk->setDelta(deltaMono);
-                    pEdgeMono->setRobustKernel(rk);
-                }
-                optimizer.addEdge(pEdgeMono);
-            }
+  int nEdgeID = 0;
+  for (auto pMp : vpMps)
+  {
+    if (!pMp || pMp->isBad())
+      continue;
+    auto pVertex = new g2o::VertexPointXYZ();
+    pVertex->setId(pMp->getID() + nMaxKfID + 1);
+    pVertex->setMarginalized(true);
+    pVertex->setEstimate(Converter::ConvertPw2Vector3(pMp->getPos()));
+    optimizer.addVertex(pVertex);
+    mpLandmarks.insert({pMp, pVertex});
+    auto mObservations = pMp->getObservation();
+    for (auto &obs : mObservations)
+    {
+      auto pKf = obs.first.lock();
+      if (!pKf || pKf->isBad())
+        continue;
+      auto iter = mpFrames.find(pKf);
+      if (iter == mpFrames.end())
+        continue;
+      auto pFrame = iter->second;
+      auto &kp = pKf->getLeftKeyPoint(obs.second);
+      auto &rightU = pKf->getRightU(obs.second);
+      if (rightU > 0)
+      {
+        auto pEdgeStereo = new g2o::EdgeStereoSE3ProjectXYZ();
+        pEdgeStereo->fx = Camera::mfFx;
+        pEdgeStereo->fy = Camera::mfFy;
+        pEdgeStereo->cx = Camera::mfCx;
+        pEdgeStereo->cy = Camera::mfCy;
+        pEdgeStereo->bf = Camera::mfBf;
+        pEdgeStereo->setId(nEdgeID++);
+        pEdgeStereo->setVertex(0, pVertex);
+        pEdgeStereo->setVertex(1, pFrame);
+        pEdgeStereo->setMeasurement(Eigen::Vector3d(kp.pt.x, kp.pt.y, rightU));
+        pEdgeStereo->setInformation(Eigen::Matrix3d::Identity() * pKf->getScaledFactorInv2(kp.octave));
+        if (bUseRk)
+        {
+          auto rk = new g2o::RobustKernelHuber();
+          rk->setDelta(deltaStereo);
+          pEdgeStereo->setRobustKernel(rk);
         }
+        optimizer.addEdge(pEdgeStereo);
+      }
+      else
+      {
+        auto pEdgeMono = new g2o::EdgeSE3ProjectXYZ();
+        pEdgeMono->fx = Camera::mfFx;
+        pEdgeMono->fy = Camera::mfFy;
+        pEdgeMono->cx = Camera::mfCx;
+        pEdgeMono->cy = Camera::mfCy;
+        pEdgeMono->setId(nEdgeID++);
+        pEdgeMono->setVertex(0, pVertex);
+        pEdgeMono->setVertex(1, pFrame);
+        pEdgeMono->setMeasurement(Eigen::Vector2d(kp.pt.x, kp.pt.y));
+        pEdgeMono->setInformation(Eigen::Matrix2d::Identity() * pKf->getScaledFactorInv2(kp.octave));
+        if (bUseRk)
+        {
+          auto rk = new g2o::RobustKernelHuber();
+          rk->setDelta(deltaMono);
+          pEdgeMono->setRobustKernel(rk);
+        }
+        optimizer.addEdge(pEdgeMono);
+      }
     }
-    optimizer.initializeOptimization(0);
-    optimizer.optimize(nIteration);
+  }
+  optimizer.initializeOptimization(0);
+  optimizer.optimize(nIteration);
 
-    for (auto &item : mpFrames) {
-        auto pkf = item.first;
-        auto pVertex = item.second;
-        pkf->mTcwGBA = Converter::ConvertSE32Tcw(pVertex->estimate());
-    }
+  for (auto &item : mpFrames)
+  {
+    auto pkf = item.first;
+    auto pVertex = item.second;
+    pkf->mTcwGBA = Converter::ConvertSE32Tcw(pVertex->estimate());
+  }
 
-    for (auto &item : mpLandmarks) {
-        auto pMp = item.first;
-        auto pVertex = item.second;
-        pMp->mPGBA = Converter::ConvertVector32Pw(pVertex->estimate());
-    }
+  for (auto &item : mpLandmarks)
+  {
+    auto pMp = item.first;
+    auto pVertex = item.second;
+    pMp->mPGBA = Converter::ConvertVector32Pw(pVertex->estimate());
+  }
 }
 
 /// 将SIM3Ret类型转换为g2o::Sim3类型
-g2o::Sim3 Converter::ConvertSim3G2o(const Sim3Ret &Scm) {
-    cv::Mat Rqp, tqp;
-    g2o::Matrix3 Rqpg;
-    g2o::Vector3 tqpg;
-    Scm.mRqp.convertTo(Rqp, CV_64F);
-    Scm.mtqp.convertTo(tqp, CV_64F);
-    cv::cv2eigen(Rqp, Rqpg);
-    cv::cv2eigen(tqp, tqpg);
-    return g2o::Sim3(Rqpg, tqpg, (double)Scm.mfS);
+g2o::Sim3 Converter::ConvertSim3G2o(const Sim3Ret &Scm)
+{
+  cv::Mat Rqp, tqp;
+  g2o::Matrix3 Rqpg;
+  g2o::Vector3 tqpg;
+  Scm.mRqp.convertTo(Rqp, CV_64F);
+  Scm.mtqp.convertTo(tqp, CV_64F);
+  cv::cv2eigen(Rqp, Rqpg);
+  cv::cv2eigen(tqp, tqpg);
+  return g2o::Sim3(Rqpg, tqpg, (double)Scm.mfS);
 }
 
 /// 将g2o::Sim3类型转换为SIM3Ret类型
-Sim3Ret Converter::ConvertG2o2Sim3(const g2o::Sim3 &Scm) {
-    cv::Mat Rqp(3, 3, CV_64F), tqp(3, 1, CV_64F);
-    g2o::Matrix3 Rqpg = Scm.rotation().matrix();
-    g2o::Vector3 tqpg = Scm.translation();
-    cv::eigen2cv(Rqpg, Rqp);
-    cv::eigen2cv(tqpg, tqp);
-    Sim3Ret Sqp;
-    Sqp.mfS = Scm.scale();
-    Rqp.convertTo(Sqp.mRqp, CV_32F);
-    tqp.convertTo(Sqp.mtqp, CV_32F);
-    return Sqp;
+Sim3Ret Converter::ConvertG2o2Sim3(const g2o::Sim3 &Scm)
+{
+  cv::Mat Rqp(3, 3, CV_64F), tqp(3, 1, CV_64F);
+  g2o::Matrix3 Rqpg = Scm.rotation().matrix();
+  g2o::Vector3 tqpg = Scm.translation();
+  cv::eigen2cv(Rqpg, Rqp);
+  cv::eigen2cv(tqpg, tqp);
+  Sim3Ret Sqp;
+  Sqp.mfS = Scm.scale();
+  Rqp.convertTo(Sqp.mRqp, CV_32F);
+  tqp.convertTo(Sqp.mtqp, CV_32F);
+  return Sqp;
 }
 
 /// 将Rcw的cv::Mat类型转换为Eigen::Quaternionf类型
-Eigen::Quaternionf Converter::ConvertCV2Eigen(const cv::Mat &Rcw){
-    Eigen::Matrix3f RcwE;
-    cv::cv2eigen(Rcw, RcwE);
-    Eigen::Quaternionf Qcw(RcwE);
-    Qcw.normalize();
-    return Qcw;
+Eigen::Quaternionf Converter::ConvertCV2Eigen(const cv::Mat &Rcw)
+{
+  Eigen::Matrix3f RcwE;
+  cv::cv2eigen(Rcw, RcwE);
+  Eigen::Quaternionf Qcw(RcwE);
+  Qcw.normalize();
+  return Qcw;
 }
 
 /// Optimizer的静态变量

@@ -28,8 +28,8 @@ MinFrames: 0
 ThDepth: 35
 
 # ORB特征点提取参数
-ORBExtractor.nFeatures: 3000
-ORBExtractor.nInitFeatures: 3000
+ORBExtractor.nFeatures: 2000
+ORBExtractor.nInitFeatures: 2000
 ORBExtractor.nLevels: 8
 ORBExtractor.scaleFactor: 1.2
 ORBExtractor.iniThFAST: 20
@@ -37,7 +37,7 @@ ORBExtractor.minThFAST: 7
 
 # 路径信息
 Path.Vocabulary: "/home/lucky-lu/Projects/ORB_SLAM2_ROS2/Vocabulary/ORBvoc.txt"
-Path.BriefTemplate: "/home/lucky-lu/Projects/ORB_SLAM2_ROS2/config/BRIEF_TEMPLATE.txt"
+Path.BriefTemplate: "/home/lucky-lu/Projects/ORB_SLAM2_ROS2/config/brief_template.txt"
 Path.Map: "/home/lucky-lu/Projects/ORB_SLAM2_ROS2/map/KITTI"
 
 # 是否以仅跟踪模式启动

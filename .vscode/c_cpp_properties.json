@@ -1,26 +1,22 @@
 {
-    "configurations": [
-        {
-            "browse": {
-                "databaseFilename": "${default}",
-                "limitSymbolsToIncludedHeaders": false
-            },
-            "includePath": [
-                "/opt/ros/foxy/include/**",
-                "/usr/include/**",
-                "/usr/include/eigen3",
-                "${workspaceFolder}/src/ORB_SLAM2/include",
-                "${workspaceFolder}/install/Release/orb_slam2_interfaces/include",
-                "${workspaceFolder}/install/orb_slam2_interfaces/include",
-                "${workspaceFolder}/src/image_publisher/include",
-                "${workspaceFolder}/build/orb_slam2_interfaces/rosidl_generator_cpp"
-            ],
-            "name": "ROS",
-            "intelliSenseMode": "gcc-x64",
-            "compilerPath": "/usr/bin/gcc",
-            "cStandard": "gnu11",
-            "cppStandard": "c++14"
-        }
-    ],
-    "version": 4
+  "configurations": [
+    {
+      "browse": {
+        "databaseFilename": "${workspaceFolder}/.vscode/browse.vc.db",
+        "limitSymbolsToIncludedHeaders": false
+      },
+      "includePath": [
+        "/opt/ros/humble/include/**",
+        "/home/lucky-lu/Projects/ORB_SLAM2_ROS2/src/ORB_SLAM2/include/**",
+        "/usr/include/**",
+        "${workspaceFolder}/install/orb_slam2_interfaces/include"
+      ],
+      "name": "ros2",
+      "intelliSenseMode": "gcc-x64",
+      "compilerPath": "/usr/bin/gcc",
+      "cStandard": "gnu11",
+      "cppStandard": "c++14"
+    }
+  ],
+  "version": 4
 }

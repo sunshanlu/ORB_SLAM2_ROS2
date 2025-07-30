@@ -40,7 +40,7 @@ ORBExtractor.minThFAST: 7
 
 # 路径信息
 Path.Vocabulary: "/home/rookie-lu/Project/ORB-SLAM2/ORB-SLAM2-ROS2/Vocabulary/ORBvoc.txt"
-Path.BriefTemplate: "/home/rookie-lu/Project/ORB-SLAM2/ORB-SLAM2-ROS2/config/BRIEF_TEMPLATE.txt"
+Path.BriefTemplate: "/home/rookie-lu/Project/ORB-SLAM2/ORB-SLAM2-ROS2/config/brief_template.txt"
 Path.Map: "/home/rookie-lu/Project/ORB-SLAM2/ORB-SLAM2-ROS2/map/TUM"
 
 # 是否以仅跟踪模式启动

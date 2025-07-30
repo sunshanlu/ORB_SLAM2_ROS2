@@ -1,51 +1,50 @@
 # ORB-SLAM2-ROS2
 
-![C++](https://img.shields.io/badge/c++-std14-blue)
-![ubuntu](https://img.shields.io/badge/platform-ubuntu20.04-orange)
-![SLAM](https://img.shields.io/badge/slam-stereo--visual-green)
+![C++](https://img.shields.io/badge/c++-std17-blue)
+![ubuntu](https://img.shields.io/badge/platform-ubuntu22.04-orange)
+![SLAM](https://img.shields.io/badge/slam-ORB--SLAM2-green)
+![ROS2](https://img.shields.io/badge/ros2-humble-red)
 
 ## 1.介绍
 
 <div align="center">
 	<a href="https://www.bilibili.com/video/BV1yi421S73r/?vd_source=9d945accb7548e6244fd39d5aee6126d" title="bilibili:ORB_SLAM2_ROS2">
-		<img src="https://raw.githubusercontent.com/sunshanlu/ORB-SLAM2-ROS2/main/ORB_SLAM2_ROS2.jpg" alt="ORB_SLAM2_ROS2" width=600>
+		<img src="./res/orb_slam2_ros2.jpg" alt="ORB_SLAM2_ROS2" width=800>
 	</a>
 </div>
 
-基于ORB_SLAM2的思想，对ORB_SLAM2进行了**重写**。
+基于`ORB_SLAM2`的原理，对`ORB_SLAM2`进行了完全**重写**。
 
-1. 去掉了ORB_SLAM2中，对单目相机的支持，支持双目和深度相机。
-2. 对**ROS2**进行了兼容，可以快速融入到基于**ROS2**的项目中去。
-3. 使用了**C++14**标准，使用智能指针代替普通指针，实现了废弃即析构的高效内存管理。
-4. 修改了部分三方库的依赖，保证了库的**主流兼容性**(DBoW3、g2o_20201223)。
-5. 实现了基于**多线程**的，高效的**地图的保存和加载**功能，基于此可以完成如下任务：
-   1. 地图的离线保存后，可完成部分区域**仅跟踪定位功能**，配合一定的控制手段，可以实现**轨迹播放类**轻任务。
-   2. 可以实现大区域的，分块的，地图离线保存。
+1. 去掉了`ORB_SLAM2`中，对单目相机的支持，**仅支持**双目和深度相机；
+2. 实现了算法和`ROS2`进行了兼容，可以快速融入到基于**ROS2**的项目中去；
+3. 基于`C++17`标准，使用**智能指针**代替普通指针，提高内存管理的安全性，但增加了额外的时间开销，使用`execution`策略来提高效率，但与原来`ORB-SLAM2`系统相比，仍存在`20%`的额外时间开销；
+4. 基于目前主流的三方库，保证了依赖的**主流兼容性**；
+5. 基于**多线程**和**输入输出流**，实现了高效的**地图的保存和加载**功能；
+6. `10000`行代码的工作量，使用`cloc`工具统计代码`C++`代码行数如下。
 
+<div align="center">
+	<img src="./res/code_nums.png" alt="ORB_SLAM2_ROS2" width=800>
+</div>
 
 
 ## 2. 依赖
 
-1. C++14
-2. [OpenCV 3.4.16](https://github.com/opencv/opencv/releases/tag/3.4.16)
-3. [DBoW3](https://github.com/rmsalinas/DBow3)
-4. [g2o_20201223](https://github.com/RainerKuemmerle/g2o/releases/tag/20201223_git)
-5. [Pangolin 0.9.1](https://github.com/stevenlovegrove/Pangolin/releases/tag/v0.9.1)
-6. [Sophus 1.22.10](https://github.com/strasdat/Sophus/releases/tag/1.22.10)
-7. [ROS2 foxy](https://docs.ros.org/en/foxy/Installation/Ubuntu-Install-Debians.html)
-8. Eigen3
-9. cv_bridge
-10. fmt
-11. geometry_msgs
-12. sensor_msgs
-13. gflag
+1. `C++17`
+2. `OpenCV 4.2`
+3. [`DBoW3`](https://github.com/rmsalinas/DBow3)
+4. [`g2o 20241228`](https://github.com/RainerKuemmerle/g2o/tree/20241228_git)
+5. [`Pangolin 0.9.3`](https://github.com/stevenlovegrove/Pangolin/tree/v0.9.3)
+6. [Sophus 1.24.6](https://github.com/strasdat/Sophus/tree/1.24.6)
+7. [ROS2 humble](https://docs.ros.org/en/humble/Installation/Ubuntu-Install-Debians.html)
+8. `Eigen3`
+9. `cv_bridge`
 
-针对OpenCV、DBoW3和g2o，需要去上述给定的地址下载源码，编译安装。
+针对`DBoW3`、`g2o`、`Pangolin`、`Sophus`和`ROS2`，需要去上述给定的地址下载源码，编译安装。
 
 对于没有指定地址的三方库，可以使用如下命令安装：
 ```shell
 sudo apt update
-sudo apt install libeigen3-dev libgflag-dev libfmt-dev ros-$ROS_DISTRO-cv-bridge ros-$ROS_DISTRO-geometry-msgs ros-$ROS_DISTRO-sensor_msgs
+sudo apt install libeigen3-dev ros-humble-cv-bridge
 ```
 
 ## 3. 编译
@@ -60,7 +59,7 @@ colcon build
 根据需求，创建配置文件，并运行，配置文件的示例在`config`文件夹中。其中，值得注意的是，在配置文件中有如下选项需要根据文件路径进行修改：
 ```yaml
 Path.Vocabulary: "词袋文件路径，可以是ORB_SLAM2官网的词袋文件，需要解压为txt文件后使用"
-Path.BriefTemplate: "BRIEF 描述子模版文件路径，就是confg文件夹下的BRIEF_TEMPLATE.txt文件"
+Path.BriefTemplate: "BRIEF 描述子模版文件路径，就是confg文件夹下的brief_template.txt文件"
 Path.Map: "地图的保存和加载路径，需要提前创建文件夹，指定保存的文件夹路径即可"
 ```
 
@@ -85,17 +84,17 @@ Camera.k3: 0.0
 source ./install/setup.bash
 ./install/orb_slam2/lib/orb_slam2/kitti_example kitti_data_seq kitti_config_path
 ```
-1. kitti_data_seq，为数据集路径信息，例如 **xxx/KITTI/sequences/00**
-2. kitti_config_path，为配置文件路径信息，例如 **xxx/config/KITTI_config.yaml**，在config文件夹下有对应00数据序列的配置文件示例。
+1. `kitti_data_seq`，为数据集路径信息，例如 `xxx/KITTI/sequences/00`
+2. `kitti_config_path`，为配置文件路径信息，例如 `xxx/config/KITTI_config.yaml`，在`config`文件夹下有对应00数据序列的配置文件示例。
 
 ### 4.2 深度相机TUM数据集
 ```shell
 source ./install/setup.bash
 ./install/orb_slam2/lib/orb_slam2/tum_example tum_data_seq tum_config_path association_path
 ```
-1. tum_data_seq，为数据集路径信息，例如 **xxx/dataset/TUM/rgbd_dataset_freiburg2_desk**
-2. tum_config_path，为配置文件路径信息，例如 **xxx/config/TUM_config.yaml**，在config文件夹下有对应rgbd_dataset_freiburg2_desk数据序列的配置文件示例。
-3. association_path, 这是基于TUM的RGBD数据集的工具制作的RGB图和深度图的关系文件
+1. `tum_data_seq`，为数据集路径信息，例如 `xxx/dataset/TUM/rgbd_dataset_freiburg2_desk`
+2. `tum_config_path`，为配置文件路径信息，例如 `xxx/config/TUM_config.yaml`，在`config`文件夹下有对应`rgbd_dataset_freiburg2_desk`数据序列的配置文件示例。
+3. `association_path`, 这是基于TUM的RGBD数据集的工具制作的`RGB`图和深度图的关系文件
 
 ### 4.3 ROS2示例
 需要在`./src/ORB_SLAM2/example/ROS2/ROSExample.cc`中，将全局变量`ConfigPath`更改为实际的配置文件路径即可。

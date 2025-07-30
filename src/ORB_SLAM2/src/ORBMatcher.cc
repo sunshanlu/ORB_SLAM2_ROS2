@@ -5,7 +5,8 @@
 #include "ORB_SLAM2/MapPoint.h"
 #include "ORB_SLAM2/Sim3Solver.h"
 
-namespace ORB_SLAM2_ROS2 {
+namespace ORB_SLAM2_ROS2
+{
 
 /**
  * @brief 双目相机初始化匹配
@@ -14,64 +15,69 @@ namespace ORB_SLAM2_ROS2 {
  * @param pFrame    寻找匹配的帧
  * @return int      返回匹配的数目
  */
-int ORBMatcher::searchByStereo(Frame::SharedPtr pFrame) {
-    int nMatches = 0;
-    int nLeftKp = pFrame->mvFeatsLeft.size();
-    pFrame->mvDepths.clear();
-    pFrame->mvFeatsRightU.clear();
-    pFrame->mvDepths.resize(nLeftKp, -1.0);
-    pFrame->mvFeatsRightU.resize(nLeftKp, -1.0);
+int ORBMatcher::searchByStereo(Frame::SharedPtr pFrame)
+{
+  int nMatches = 0;
+  int nLeftKp = pFrame->mvFeatsLeft.size();
+  pFrame->mvDepths.clear();
+  pFrame->mvFeatsRightU.clear();
+  pFrame->mvDepths.resize(nLeftKp, -1.0);
+  pFrame->mvFeatsRightU.resize(nLeftKp, -1.0);
 
-    const auto &leftPyramids = pFrame->getLeftPyramid();
-    const auto &rightPyramids = pFrame->getRightPyramid();
-    const auto &leftKeyPoints = pFrame->getLeftKeyPoints();
-    const auto &rightKeyPoints = pFrame->getRightKeyPoints();
-    const auto &leftDesc = pFrame->getLeftDescriptor();
-    const auto &rightDesc = pFrame->getRightDescriptor();
+  const auto &leftPyramids = pFrame->getLeftPyramid();
+  const auto &rightPyramids = pFrame->getRightPyramid();
+  const auto &leftKeyPoints = pFrame->getLeftKeyPoints();
+  const auto &rightKeyPoints = pFrame->getRightKeyPoints();
+  const auto &leftDesc = pFrame->getLeftDescriptor();
+  const auto &rightDesc = pFrame->getRightDescriptor();
 
-    RowIdxDB rowIdxDB = ORBMatcher::createRowIndexDB(pFrame.get());
-    for (std::size_t ldx = 0; ldx < leftKeyPoints.size(); ++ldx) {
-        const auto &lKp = leftKeyPoints[ldx];
-        float maxU = lKp.pt.x - 0;
-        float minU = std::max(0.f, lKp.pt.x - Camera::mfFx);
-        cv::Mat lDesc = leftDesc.at(ldx);
-        const auto &rKpIds = rowIdxDB[cvRound(lKp.pt.y)];
-        std::vector<std::size_t> candidateIdx;
-        std::copy_if(rKpIds.begin(), rKpIds.end(), std::back_inserter(candidateIdx), [&](const std::size_t &idx) {
-            const float &retCol = rightKeyPoints[idx].pt.x;
-            return (retCol < maxU && retCol > minU) ? true : false;
-        });
-        if (candidateIdx.empty())
-            continue;
-        float ratio = 0.f;
-        BestMatchDesc bestMatch = ORBMatcher::getBestMatch(lDesc, rightDesc, candidateIdx, ratio);
-        if (bestMatch.second > mnMeanThreshold)
-            continue;
+  RowIdxDB rowIdxDB = ORBMatcher::createRowIndexDB(pFrame.get());
+  for (std::size_t ldx = 0; ldx < leftKeyPoints.size(); ++ldx)
+  {
+    const auto &lKp = leftKeyPoints[ldx];
+    float maxU = lKp.pt.x - 0;
+    float minU = std::max(0.f, lKp.pt.x - Camera::mfFx);
+    cv::Mat lDesc = leftDesc.at(ldx);
+    const auto &rKpIds = rowIdxDB[cvRound(lKp.pt.y)];
+    std::vector<std::size_t> candidateIdx;
+    std::copy_if(rKpIds.begin(), rKpIds.end(), std::back_inserter(candidateIdx),
+                 [&](const std::size_t &idx)
+                 {
+                   const float &retCol = rightKeyPoints[idx].pt.x;
+                   return (retCol < maxU && retCol > minU) ? true : false;
+                 });
+    if (candidateIdx.empty())
+      continue;
+    float ratio = 0.f;
+    BestMatchDesc bestMatch = ORBMatcher::getBestMatch(lDesc, rightDesc, candidateIdx, ratio);
+    if (bestMatch.second > mnMeanThreshold)
+      continue;
 
-        const auto &rKp = rightKeyPoints[bestMatch.first];
-        if (lKp.octave > rKp.octave + 1 || lKp.octave < rKp.octave - 1)
-            continue;
+    const auto &rKp = rightKeyPoints[bestMatch.first];
+    if (lKp.octave > rKp.octave + 1 || lKp.octave < rKp.octave - 1)
+      continue;
 
-        const cv::Mat &leftImage = leftPyramids[lKp.octave];
-        const cv::Mat &rightImage = rightPyramids[rKp.octave];
-        float deltaU = pixelSADMatch(leftImage, rightImage, lKp, rKp);
+    const cv::Mat &leftImage = leftPyramids[lKp.octave];
+    const cv::Mat &rightImage = rightPyramids[rKp.octave];
+    float deltaU = pixelSADMatch(leftImage, rightImage, lKp, rKp);
 
-        float rightU = rKp.pt.x + deltaU;
-        rightU = std::max(0.f, rightU);
-        rightU = std::min(rightU, (float)rightPyramids[0].cols - 1);
-        float delta = lKp.pt.x - rightU;
-        if (delta <= 0) {
-            rightU = rKp.pt.x;
-            delta = lKp.pt.x - rightU;
-            if (delta <= 0)
-                continue;
-        }
-        pFrame->mvFeatsRightU[ldx] = rightU;
-
-        pFrame->mvDepths[ldx] = Camera::mfBf / (lKp.pt.x - rightU);
-        ++nMatches;
+    float rightU = rKp.pt.x + deltaU;
+    rightU = std::max(0.f, rightU);
+    rightU = std::min(rightU, (float)rightPyramids[0].cols - 1);
+    float delta = lKp.pt.x - rightU;
+    if (delta <= 0)
+    {
+      rightU = rKp.pt.x;
+      delta = lKp.pt.x - rightU;
+      if (delta <= 0)
+        continue;
     }
-    return nMatches;
+    pFrame->mvFeatsRightU[ldx] = rightU;
+
+    pFrame->mvDepths[ldx] = Camera::mfBf / (lKp.pt.x - rightU);
+    ++nMatches;
+  }
+  return nMatches;
 }
 
 /**
@@ -161,75 +167,89 @@ int ORBMatcher::searchByStereo(Frame::SharedPtr pFrame) {
  * @param bAddMPs   是否添加新的地图点(双方都没有地图点)
  * @return int      输出的匹配数目
  */
-int ORBMatcher::searchByBow(VirtualFrame::SharedPtr pFrame, VirtualFrame::SharedPtr pKframe,
-                            std::vector<cv::DMatch> &matches, bool bAddMPs, bool bLoop) {
-    pFrame->computeBow();
-    pKframe->computeBow();
-    auto pfI = pFrame->mFeatVec.begin();
-    auto pkfI = pKframe->mFeatVec.begin();
-    auto pfE = pFrame->mFeatVec.end();
-    auto pkfE = pKframe->mFeatVec.end();
-    int nMatch = 0;
-    std::vector<std::pair<int, float>> db;
-    auto mapPointsF = pFrame->getMapPoints();
-    auto mapPointsKF = pKframe->getMapPoints();
+int ORBMatcher::searchByBow(VirtualFrame::SharedPtr pFrame, VirtualFrame::SharedPtr pKframe, std::vector<cv::DMatch> &matches, bool bAddMPs, bool bLoop)
+{
+  pFrame->computeBow();
+  pKframe->computeBow();
+  auto pfI = pFrame->mFeatVec.begin();
+  auto pkfI = pKframe->mFeatVec.begin();
+  auto pfE = pFrame->mFeatVec.end();
+  auto pkfE = pKframe->mFeatVec.end();
+  int nMatch = 0;
+  std::vector<std::pair<int, float>> db;
+  auto mapPointsF = pFrame->getMapPoints();
+  auto mapPointsKF = pKframe->getMapPoints();
 
-    while (pfI != pfE && pkfI != pkfE) {
-        if (pfI->first > pkfI->first)
-            ++pkfI;
-        else if (pfI->first < pkfI->first)
-            ++pfI;
-        else {
-            for (const auto &pkId : pkfI->second) {
-                const auto &pMpKFrame = mapPointsKF[pkId];
-                bool goodFlag = (pMpKFrame && !pMpKFrame->isBad());
+  while (pfI != pfE && pkfI != pkfE)
+  {
+    if (pfI->first > pkfI->first)
+      ++pkfI;
+    else if (pfI->first < pkfI->first)
+      ++pfI;
+    else
+    {
+      for (const auto &pkId : pkfI->second)
+      {
+        const auto &pMpKFrame = mapPointsKF[pkId];
+        bool goodFlag = (pMpKFrame && !pMpKFrame->isBad());
 
-                /// 注意，bLoop和bAddMPs不同时为true
-                if (bAddMPs) {
-                    if (goodFlag && pMpKFrame->isInMap())
-                        continue;
-                } else if (bLoop) {
-
-                } else {
-                    if (!goodFlag)
-                        continue;
-                }
-                const auto &fKDesc = pKframe->mvLeftDescriptor.at(pkId);
-                std::vector<std::size_t> candidateIds;
-                for (const auto &pId : pfI->second) {
-                    const auto &pMpFrame = mapPointsF[pId];
-                    bool goodFlag = (pMpFrame && !pMpFrame->isBad());
-                    if (bAddMPs) {
-                        if (goodFlag && pMpFrame->isInMap())
-                            continue;
-                        candidateIds.push_back(pId);
-                    } else if (bLoop) {
-                        candidateIds.push_back(pId);
-                    } else {
-                        if (!goodFlag)
-                            candidateIds.push_back(pId);
-                    }
-                }
-                if (candidateIds.empty())
-                    continue;
-                float ratio = 0.f;
-                auto bestMatch = getBestMatch(fKDesc, pFrame->mvLeftDescriptor, candidateIds, ratio);
-                ++nMatch;
-                if (bestMatch.second > mnMinThreshold || ratio > mfRatio) {
-                    db.push_back({bestMatch.second, ratio});
-                    continue;
-                }
-                matches.emplace_back(bestMatch.first, pkId, bestMatch.second);
-            }
-            ++pfI;
-            ++pkfI;
+        /// 注意，bLoop和bAddMPs不同时为true
+        if (bAddMPs)
+        {
+          if (goodFlag && pMpKFrame->isInMap())
+            continue;
         }
+        else if (bLoop)
+        {
+        }
+        else
+        {
+          if (!goodFlag)
+            continue;
+        }
+        const auto &fKDesc = pKframe->mvLeftDescriptor.at(pkId);
+        std::vector<std::size_t> candidateIds;
+        for (const auto &pId : pfI->second)
+        {
+          const auto &pMpFrame = mapPointsF[pId];
+          bool goodFlag = (pMpFrame && !pMpFrame->isBad());
+          if (bAddMPs)
+          {
+            if (goodFlag && pMpFrame->isInMap())
+              continue;
+            candidateIds.push_back(pId);
+          }
+          else if (bLoop)
+          {
+            candidateIds.push_back(pId);
+          }
+          else
+          {
+            if (!goodFlag)
+              candidateIds.push_back(pId);
+          }
+        }
+        if (candidateIds.empty())
+          continue;
+        float ratio = 0.f;
+        auto bestMatch = getBestMatch(fKDesc, pFrame->mvLeftDescriptor, candidateIds, ratio);
+        ++nMatch;
+        if (bestMatch.second > mnMinThreshold || ratio > mfRatio)
+        {
+          db.push_back({bestMatch.second, ratio});
+          continue;
+        }
+        matches.emplace_back(bestMatch.first, pkId, bestMatch.second);
+      }
+      ++pfI;
+      ++pkfI;
     }
-    if (mbCheckOri)
-        verifyAngle(matches, pFrame->getLeftKeyPoints(), pKframe->getLeftKeyPoints());
-    if (!bAddMPs && !bLoop)
-        setMapPoints(pFrame->mvpMapPoints, mapPointsKF, matches);
-    return matches.size();
+  }
+  if (mbCheckOri)
+    verifyAngle(matches, pFrame->getLeftKeyPoints(), pKframe->getLeftKeyPoints());
+  if (!bAddMPs && !bLoop)
+    setMapPoints(pFrame->mvpMapPoints, mapPointsKF, matches);
+  return matches.size();
 }
 
 /**
@@ -242,76 +262,88 @@ int ORBMatcher::searchByBow(VirtualFrame::SharedPtr pFrame, VirtualFrame::Shared
  * @param th      输入的寻找匹配的阈值大小
  * @return int  输出的匹配成功的个数
  */
-int ORBMatcher::searchByProjection(VirtualFrame::SharedPtr pFrame1, VirtualFrame::SharedPtr pFrame2,
-                                   std::vector<cv::DMatch> &matches, float th, bool bFuse) {
-    matches.clear();
+int ORBMatcher::searchByProjection(VirtualFrame::SharedPtr pFrame1, VirtualFrame::SharedPtr pFrame2, std::vector<cv::DMatch> &matches, float th, bool bFuse)
+{
+  matches.clear();
 
-    /// 判断前进或后退
-    cv::Mat Rcw1, tcw1, Rcw2, tcw2;
-    pFrame1->getPose(Rcw1, tcw1);
-    pFrame2->getPose(Rcw2, tcw2);
+  /// 判断前进或后退
+  cv::Mat Rcw1, tcw1, Rcw2, tcw2;
+  pFrame1->getPose(Rcw1, tcw1);
+  pFrame2->getPose(Rcw2, tcw2);
 
-    cv::Mat twc1 = -Rcw1.t() * tcw1;
-    cv::Mat tlc = Rcw2 * twc1 + tcw2;
-    float z = tlc.at<float>(2, 0);
-    float zabs = std::abs(z);
-    bool up = false, down = false;
-    if (zabs > Camera::mfBl)
-        z > 0 ? up = true : down = true;
-    auto mps1 = pFrame1->getMapPoints();
-    auto mps2 = pFrame2->getMapPoints();
-    for (std::size_t idx = 0; idx < mps2.size(); ++idx) {
-        MapPoint::SharedPtr pMp2 = mps2[idx];
-        if (!pMp2 || pMp2->isBad())
-            continue;
-        if (bFuse) {
-            float vecDistance, cosTheta;
-            cv::Point2f uv;
-            if (!pMp2->isInVision(pFrame1, vecDistance, uv, cosTheta)) {
-                continue;
-            }
-        }
-        std::vector<std::size_t> candidateIdx;
-        const auto &feature = pFrame2->mvFeatsLeft[idx];
-        const auto &desc = pFrame2->mvLeftDescriptor[idx];
-        if (up) {
-            candidateIdx = pFrame1->findFeaturesInArea(feature, th, feature.octave, 7);
-        } else if (down) {
-            candidateIdx = pFrame1->findFeaturesInArea(feature, th, 0, feature.octave);
-        } else {
-            int minOctave = std::max(0, feature.octave - 1);
-            int maxOctave = std::min(feature.octave + 1, 7);
-            candidateIdx = pFrame1->findFeaturesInArea(feature, th, minOctave, maxOctave);
-        }
-        if (candidateIdx.empty()) {
-            continue;
-        }
-        std::vector<std::size_t> newCandidates;
-
-        /// 如果是恒速模型匹配，将fram原有的匹配保留下来，不做任何修改
-        if (!bFuse)
-            std::copy_if(candidateIdx.begin(), candidateIdx.end(), std::back_inserter(newCandidates),
-                         [&](const std::size_t &candidateID) {
-                             MapPoint::SharedPtr pMp1 = mps1[candidateID];
-                             if (pMp1 && !pMp1->isBad()) {
-                                 pMp1->addMatchInTrack();
-                                 return false;
-                             }
-                             return true;
-                         });
-        else
-            std::swap(candidateIdx, newCandidates);
-        float ratio = 0.f;
-        if (newCandidates.empty())
-            continue;
-        auto bestMatches = getBestMatch(desc, pFrame1->mvLeftDescriptor, newCandidates, ratio);
-        if (ratio < mfRatio && bestMatches.second < mnMinThreshold) {
-            matches.emplace_back(bestMatches.first, idx, bestMatches.second);
-        }
+  cv::Mat twc1 = -Rcw1.t() * tcw1;
+  cv::Mat tlc = Rcw2 * twc1 + tcw2;
+  float z = tlc.at<float>(2, 0);
+  float zabs = std::abs(z);
+  bool up = false, down = false;
+  if (zabs > Camera::mfBl)
+    z > 0 ? up = true : down = true;
+  auto mps1 = pFrame1->getMapPoints();
+  auto mps2 = pFrame2->getMapPoints();
+  for (std::size_t idx = 0; idx < mps2.size(); ++idx)
+  {
+    MapPoint::SharedPtr pMp2 = mps2[idx];
+    if (!pMp2 || pMp2->isBad())
+      continue;
+    if (bFuse)
+    {
+      float vecDistance, cosTheta;
+      cv::Point2f uv;
+      if (!pMp2->isInVision(pFrame1, vecDistance, uv, cosTheta))
+      {
+        continue;
+      }
     }
+    std::vector<std::size_t> candidateIdx;
+    const auto &feature = pFrame2->mvFeatsLeft[idx];
+    const auto &desc = pFrame2->mvLeftDescriptor[idx];
+    if (up)
+    {
+      candidateIdx = pFrame1->findFeaturesInArea(feature, th, feature.octave, 7);
+    }
+    else if (down)
+    {
+      candidateIdx = pFrame1->findFeaturesInArea(feature, th, 0, feature.octave);
+    }
+    else
+    {
+      int minOctave = std::max(0, feature.octave - 1);
+      int maxOctave = std::min(feature.octave + 1, 7);
+      candidateIdx = pFrame1->findFeaturesInArea(feature, th, minOctave, maxOctave);
+    }
+    if (candidateIdx.empty())
+    {
+      continue;
+    }
+    std::vector<std::size_t> newCandidates;
+
+    /// 如果是恒速模型匹配，将fram原有的匹配保留下来，不做任何修改
     if (!bFuse)
-        setMapPoints(pFrame1->mvpMapPoints, pFrame2->mvpMapPoints, matches);
-    return matches.size();
+      std::copy_if(candidateIdx.begin(), candidateIdx.end(), std::back_inserter(newCandidates),
+                   [&](const std::size_t &candidateID)
+                   {
+                     MapPoint::SharedPtr pMp1 = mps1[candidateID];
+                     if (pMp1 && !pMp1->isBad())
+                     {
+                       pMp1->addMatchInTrack();
+                       return false;
+                     }
+                     return true;
+                   });
+    else
+      std::swap(candidateIdx, newCandidates);
+    float ratio = 0.f;
+    if (newCandidates.empty())
+      continue;
+    auto bestMatches = getBestMatch(desc, pFrame1->mvLeftDescriptor, newCandidates, ratio);
+    if (ratio < mfRatio && bestMatches.second < mnMinThreshold)
+    {
+      matches.emplace_back(bestMatches.first, idx, bestMatches.second);
+    }
+  }
+  if (!bFuse)
+    setMapPoints(pFrame1->mvpMapPoints, pFrame2->mvpMapPoints, matches);
+  return matches.size();
 }
 
 /**
@@ -335,45 +367,48 @@ int ORBMatcher::searchByProjection(VirtualFrame::SharedPtr pFrame1, VirtualFrame
  * @return true     pMpC成功进行了匹配
  * @return false    pMpC匹配失败
  */
-bool ORBMatcher::SIM3Project(MapPointPtr pMpC, const cv::Mat &Rcw, const cv::Mat &tcw, const Sim3Ret &g2oSmc,
-                             KeyFramePtr mpCurr, KeyFramePtr mpMatch, const float &th,
-                             const std::vector<MapPointPtr> &pM, const cv::Mat &desc, const std::vector<cv::Mat> &descM,
-                             std::size_t &candidateID) {
-    cv::Mat p3dW = pMpC->getPos();
-    cv::Mat p3dC = Rcw * p3dW + tcw;
-    cv::Mat p3dM = g2oSmc * p3dC;
+bool ORBMatcher::SIM3Project(MapPointPtr pMpC, const cv::Mat &Rcw, const cv::Mat &tcw, const Sim3Ret &g2oSmc, KeyFramePtr mpCurr, KeyFramePtr mpMatch,
+                             const float &th, const std::vector<MapPointPtr> &pM, const cv::Mat &desc, const std::vector<cv::Mat> &descM,
+                             std::size_t &candidateID)
+{
+  cv::Mat p3dW = pMpC->getPos();
+  cv::Mat p3dC = Rcw * p3dW + tcw;
+  cv::Mat p3dM = g2oSmc * p3dC;
 
-    if (p3dM.at<float>(2) <= 0)
-        return false;
-    cv::KeyPoint kp;
-    Camera::project(p3dM, kp.pt);
-    if (!mpCurr->isInImage(kp.pt))
-        return false;
-    const float &x = p3dM.at<float>(0);
-    const float &y = p3dM.at<float>(1);
-    const float &z = p3dM.at<float>(2);
-    // note: 这里需要同步到C坐标系下的尺度，因为是使用C坐标系下的点进行预测层级
-    float d = std::sqrt(x * x + y * y + z * z) / g2oSmc.mfS;
-    if (!pMpC->isGoodDistance(d))
-        return false;
-    kp.octave = pMpC->predictLevel(d);
-    auto vIndices = mpMatch->findFeaturesInArea(kp, th, kp.octave - 1, kp.octave + 1);
-    std::vector<std::size_t> vGoodIndices;
-    std::copy_if(vIndices.begin(), vIndices.end(), std::back_inserter(vGoodIndices), [&](const std::size_t &id) {
-        auto &pMpM = pM[id];
-        if (pMpM && !pMpM->isBad() && pMpM->isInMap())
-            return true;
-        return false;
-    });
-    if (vGoodIndices.empty())
-        return false;
-    float ratio = 0;
-    auto bestMatch = getBestMatch(desc, descM, vGoodIndices, ratio);
-    if (bestMatch.second <= mnMinThreshold && ratio <= mfRatio) {
-        candidateID = bestMatch.first;
-        return true;
-    }
+  if (p3dM.at<float>(2) <= 0)
     return false;
+  cv::KeyPoint kp;
+  Camera::project(p3dM, kp.pt);
+  if (!mpCurr->isInImage(kp.pt))
+    return false;
+  const float &x = p3dM.at<float>(0);
+  const float &y = p3dM.at<float>(1);
+  const float &z = p3dM.at<float>(2);
+  // note: 这里需要同步到C坐标系下的尺度，因为是使用C坐标系下的点进行预测层级
+  float d = std::sqrt(x * x + y * y + z * z) / g2oSmc.mfS;
+  if (!pMpC->isGoodDistance(d))
+    return false;
+  kp.octave = pMpC->predictLevel(d);
+  auto vIndices = mpMatch->findFeaturesInArea(kp, th, kp.octave - 1, kp.octave + 1);
+  std::vector<std::size_t> vGoodIndices;
+  std::copy_if(vIndices.begin(), vIndices.end(), std::back_inserter(vGoodIndices),
+               [&](const std::size_t &id)
+               {
+                 auto &pMpM = pM[id];
+                 if (pMpM && !pMpM->isBad() && pMpM->isInMap())
+                   return true;
+                 return false;
+               });
+  if (vGoodIndices.empty())
+    return false;
+  float ratio = 0;
+  auto bestMatch = getBestMatch(desc, descM, vGoodIndices, ratio);
+  if (bestMatch.second <= mnMinThreshold && ratio <= mfRatio)
+  {
+    candidateID = bestMatch.first;
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -386,62 +421,66 @@ bool ORBMatcher::SIM3Project(MapPointPtr pMpC, const cv::Mat &Rcw, const cv::Mat
  * @param th        输入的投影匹配的窗口阈值
  * @return int      输出的匹配点的数量（原有+新增的）
  */
-int ORBMatcher::searchBySim3(KeyFramePtr mpCurr, KeyFramePtr mpMatch, std::vector<cv::DMatch> &matches, Sim3Ret &g2oScm,
-                             float th) {
-    auto pC = mpCurr->getMapPoints();
-    auto pM = mpMatch->getMapPoints();
-    auto &descC = mpCurr->getLeftDescriptor();
-    auto &descM = mpMatch->getLeftDescriptor();
-    int nc = pC.size(), nm = pM.size();
-    std::vector<bool> goodflagC(nc, true);
-    std::vector<bool> goodflagM(nm, true);
-    for (const auto &match : matches) {
-        goodflagC[match.queryIdx] = false;
-        goodflagM[match.trainIdx] = false;
-    }
+int ORBMatcher::searchBySim3(KeyFramePtr mpCurr, KeyFramePtr mpMatch, std::vector<cv::DMatch> &matches, Sim3Ret &g2oScm, float th)
+{
+  auto pC = mpCurr->getMapPoints();
+  auto pM = mpMatch->getMapPoints();
+  auto &descC = mpCurr->getLeftDescriptor();
+  auto &descM = mpMatch->getLeftDescriptor();
+  int nc = pC.size(), nm = pM.size();
+  std::vector<bool> goodflagC(nc, true);
+  std::vector<bool> goodflagM(nm, true);
+  for (const auto &match : matches)
+  {
+    goodflagC[match.queryIdx] = false;
+    goodflagM[match.trainIdx] = false;
+  }
 
-    Sim3Ret g2oSmc = g2oScm.inv();
-    cv::Mat Rcw, tcw, Rmw, tmw;
-    mpCurr->getPose(Rcw, tcw);
-    mpMatch->getPose(Rmw, tmw);
+  Sim3Ret g2oSmc = g2oScm.inv();
+  cv::Mat Rcw, tcw, Rmw, tmw;
+  mpCurr->getPose(Rcw, tcw);
+  mpMatch->getPose(Rmw, tmw);
 
-    std::map<std::size_t, std::size_t> mnewMatch;
-    /// 反向投影，将C的地图点投影到M中去
-    for (int ic = 0; ic < nc; ++ic) {
-        if (!goodflagC[ic])
-            continue;
-        auto &pMpC = pC[ic];
-        if (!pMpC || pMpC->isBad())
-            continue;
-        if (!pMpC->isInMap())
-            continue;
-        std::size_t bestID;
-        int bestScore;
-        bool ret = SIM3Project(pMpC, Rcw, tcw, g2oSmc, mpCurr, mpMatch, th, pM, descC[ic], descM, bestID);
-        if (!ret)
-            continue;
-        mnewMatch.insert({ic, bestID});
-    }
-    /// 正向投影，将M的地图点投影到C中去
-    for (int im = 0; im < nm; ++im) {
-        if (!goodflagM[im])
-            continue;
-        auto &pMpM = pM[im];
-        if (!pMpM || pMpM->isBad())
-            continue;
-        std::size_t bestID;
-        bool ret = SIM3Project(pMpM, Rmw, tmw, g2oScm, mpMatch, mpCurr, th, pC, descM[im], descC, bestID);
-        if (!ret)
-            continue;
-        mnewMatch.insert({bestID, im});
-    }
-    for (const auto &m : mnewMatch) {
-        cv::DMatch match;
-        match.queryIdx = m.first;
-        match.trainIdx = m.second;
-        matches.push_back(match);
-    }
-    return matches.size();
+  std::map<std::size_t, std::size_t> mnewMatch;
+  /// 反向投影，将C的地图点投影到M中去
+  for (int ic = 0; ic < nc; ++ic)
+  {
+    if (!goodflagC[ic])
+      continue;
+    auto &pMpC = pC[ic];
+    if (!pMpC || pMpC->isBad())
+      continue;
+    if (!pMpC->isInMap())
+      continue;
+    std::size_t bestID;
+    int bestScore;
+    bool ret = SIM3Project(pMpC, Rcw, tcw, g2oSmc, mpCurr, mpMatch, th, pM, descC[ic], descM, bestID);
+    if (!ret)
+      continue;
+    mnewMatch.insert({ic, bestID});
+  }
+  /// 正向投影，将M的地图点投影到C中去
+  for (int im = 0; im < nm; ++im)
+  {
+    if (!goodflagM[im])
+      continue;
+    auto &pMpM = pM[im];
+    if (!pMpM || pMpM->isBad())
+      continue;
+    std::size_t bestID;
+    bool ret = SIM3Project(pMpM, Rmw, tmw, g2oScm, mpMatch, mpCurr, th, pC, descM[im], descC, bestID);
+    if (!ret)
+      continue;
+    mnewMatch.insert({bestID, im});
+  }
+  for (const auto &m : mnewMatch)
+  {
+    cv::DMatch match;
+    match.queryIdx = m.first;
+    match.trainIdx = m.second;
+    matches.push_back(match);
+  }
+  return matches.size();
 }
 
 /**
@@ -459,50 +498,54 @@ int ORBMatcher::searchBySim3(KeyFramePtr mpCurr, KeyFramePtr mpMatch, std::vecto
  * @param th            输入的窗口搜索的阈值
  * @return int  输出的匹配数量（已有的 + 新增的）
  */
-int ORBMatcher::searchBySim3(KeyFramePtr pCurr, const std::vector<MapPointPtr> &vLoopGroupMps,
-                             std::vector<MapPointPtr> &vMatchedMps, Sim3Ret &g2oScw, float th) {
-    int nMatches = 0;
-    std::set<MapPoint::SharedPtr> sAlreadyMatched;
-    for (const auto &pMpM : vMatchedMps) {
-        if (pMpM && !pMpM->isBad() && pMpM->isInMap()) {
-            sAlreadyMatched.insert(pMpM);
-            ++nMatches;
-        }
+int ORBMatcher::searchBySim3(KeyFramePtr pCurr, const std::vector<MapPointPtr> &vLoopGroupMps, std::vector<MapPointPtr> &vMatchedMps, Sim3Ret &g2oScw, float th)
+{
+  int nMatches = 0;
+  std::set<MapPoint::SharedPtr> sAlreadyMatched;
+  for (const auto &pMpM : vMatchedMps)
+  {
+    if (pMpM && !pMpM->isBad() && pMpM->isInMap())
+    {
+      sAlreadyMatched.insert(pMpM);
+      ++nMatches;
     }
+  }
 
-    auto alReadyEnd = sAlreadyMatched.end();
-    for (auto &pMp : vLoopGroupMps) {
-        if (!pMp || pMp->isBad() || !pMp->isInMap())
-            continue;
-        if (sAlreadyMatched.find(pMp) != alReadyEnd)
-            continue;
-        auto p3dW = pMp->getPos();
-        auto p3dC = g2oScw * p3dW;
-        if (p3dC.at<float>(2) <= 0)
-            continue;
-        cv::KeyPoint kp;
-        Camera::project(p3dC, kp.pt);
-        if (!pCurr->isInImage(kp.pt))
-            continue;
-        float dWithS = cv::norm(p3dC);
-        float d = dWithS / g2oScw.mfS;
-        if (!pMp->isGoodDistance(d))
-            continue;
-        cv::Mat viewDirection = pMp->getViewDirection();
-        if ((g2oScw.mRqp * viewDirection).dot(p3dC) < 0.5 * dWithS)
-            continue;
-        kp.octave = pMp->predictLevel(d);
-        auto vIndices = pCurr->findFeaturesInArea(kp, th, kp.octave - 1, kp.octave + 1);
-        if (vIndices.empty())
-            continue;
-        float ratio = 0.f;
-        auto bestMatch = getBestMatch(pMp->getDesc(), pCurr->getLeftDescriptor(), vIndices, ratio);
-        if (bestMatch.second <= mnMinThreshold && ratio <= mfRatio) {
-            vMatchedMps[bestMatch.first] = pMp;
-            ++nMatches;
-        }
+  auto alReadyEnd = sAlreadyMatched.end();
+  for (auto &pMp : vLoopGroupMps)
+  {
+    if (!pMp || pMp->isBad() || !pMp->isInMap())
+      continue;
+    if (sAlreadyMatched.find(pMp) != alReadyEnd)
+      continue;
+    auto p3dW = pMp->getPos();
+    auto p3dC = g2oScw * p3dW;
+    if (p3dC.at<float>(2) <= 0)
+      continue;
+    cv::KeyPoint kp;
+    Camera::project(p3dC, kp.pt);
+    if (!pCurr->isInImage(kp.pt))
+      continue;
+    float dWithS = cv::norm(p3dC);
+    float d = dWithS / g2oScw.mfS;
+    if (!pMp->isGoodDistance(d))
+      continue;
+    cv::Mat viewDirection = pMp->getViewDirection();
+    if ((g2oScw.mRqp * viewDirection).dot(p3dC) < 0.5 * dWithS)
+      continue;
+    kp.octave = pMp->predictLevel(d);
+    auto vIndices = pCurr->findFeaturesInArea(kp, th, kp.octave - 1, kp.octave + 1);
+    if (vIndices.empty())
+      continue;
+    float ratio = 0.f;
+    auto bestMatch = getBestMatch(pMp->getDesc(), pCurr->getLeftDescriptor(), vIndices, ratio);
+    if (bestMatch.second <= mnMinThreshold && ratio <= mfRatio)
+    {
+      vMatchedMps[bestMatch.first] = pMp;
+      ++nMatches;
     }
-    return nMatches;
+  }
+  return nMatches;
 }
 
 /**
@@ -515,48 +558,57 @@ int ORBMatcher::searchBySim3(KeyFramePtr pCurr, const std::vector<MapPointPtr> &
  * @param th        最终产生的搜索半径后，需要乘的倍数
  * @return int      输出产生匹配的个数（新增的 + 已有的）
  */
-int ORBMatcher::searchByProjection(VirtualFrame::SharedPtr pframe, const std::vector<MapPoint::SharedPtr> &mapPoints,
-                                   float th, std::vector<cv::DMatch> &matches, bool bFuse) {
-    int nMatches = 0;
-    auto pFrameMapPoints = pframe->getMapPoints();
-    if (!bFuse)
-        std::for_each(pFrameMapPoints.begin(), pFrameMapPoints.end(), [&](MapPoint::SharedPtr pMp) {
-            if (pMp && !pMp->isBad())
-                ++nMatches;
-        });
-    for (std::size_t idx = 0; idx < mapPoints.size(); ++idx) {
-        auto pMp = mapPoints[idx];
-        if (!pMp || pMp->isBad() || !pMp->isInMap())
-            continue;
-        float distance, cosTheta;
-        cv::KeyPoint kp;
-        if (!pMp->isInVision(pframe, distance, kp.pt, cosTheta))
-            continue;
-        kp.octave = pMp->predictLevel(distance);
-        float radius = cosTheta > 0.998f ? 2.5f : 4.0f;
-        int minLevel = std::max(0, kp.octave - 1);
-        int maxLevel = std::min(ORBExtractor::mnLevels - 1, kp.octave + 1);
-        auto candidateIdx = pframe->findFeaturesInArea(kp, radius * th, minLevel, maxLevel);
-        if (candidateIdx.empty())
-            continue;
-        float fRatio;
-        auto bestMatch = getBestMatch(pMp->getDesc(), pframe->getLeftDescriptor(), candidateIdx, fRatio);
-        if (bestMatch.second < mnMinThreshold && fRatio < mfRatio) {
-            if (!bFuse) {
-                auto pMpInF = pframe->getMapPoint(bestMatch.first);
-                if (!pMpInF || pMpInF->isBad() || !pMpInF->isInMap()) {
-                    pframe->setMapPoint(bestMatch.first, pMp);
-                    pMp->addMatchInTrack();
-                    ++nMatches;
-                }
-            } else {
-                cv::DMatch match(bestMatch.first, idx, bestMatch.second);
-                matches.push_back(match);
-                ++nMatches;
-            }
+int ORBMatcher::searchByProjection(VirtualFrame::SharedPtr pframe, const std::vector<MapPoint::SharedPtr> &mapPoints, float th,
+                                   std::vector<cv::DMatch> &matches, bool bFuse)
+{
+  int nMatches = 0;
+  auto pFrameMapPoints = pframe->getMapPoints();
+  if (!bFuse)
+    std::for_each(pFrameMapPoints.begin(), pFrameMapPoints.end(),
+                  [&](MapPoint::SharedPtr pMp)
+                  {
+                    if (pMp && !pMp->isBad())
+                      ++nMatches;
+                  });
+  for (std::size_t idx = 0; idx < mapPoints.size(); ++idx)
+  {
+    auto pMp = mapPoints[idx];
+    if (!pMp || pMp->isBad() || !pMp->isInMap())
+      continue;
+    float distance, cosTheta;
+    cv::KeyPoint kp;
+    if (!pMp->isInVision(pframe, distance, kp.pt, cosTheta))
+      continue;
+    kp.octave = pMp->predictLevel(distance);
+    float radius = cosTheta > 0.998f ? 2.5f : 4.0f;
+    int minLevel = std::max(0, kp.octave - 1);
+    int maxLevel = std::min(ORBExtractor::mnLevels - 1, kp.octave + 1);
+    auto candidateIdx = pframe->findFeaturesInArea(kp, radius * th, minLevel, maxLevel);
+    if (candidateIdx.empty())
+      continue;
+    float fRatio;
+    auto bestMatch = getBestMatch(pMp->getDesc(), pframe->getLeftDescriptor(), candidateIdx, fRatio);
+    if (bestMatch.second < mnMinThreshold && fRatio < mfRatio)
+    {
+      if (!bFuse)
+      {
+        auto pMpInF = pframe->getMapPoint(bestMatch.first);
+        if (!pMpInF || pMpInF->isBad() || !pMpInF->isInMap())
+        {
+          pframe->setMapPoint(bestMatch.first, pMp);
+          pMp->addMatchInTrack();
+          ++nMatches;
         }
+      }
+      else
+      {
+        cv::DMatch match(bestMatch.first, idx, bestMatch.second);
+        matches.push_back(match);
+        ++nMatches;
+      }
     }
-    return nMatches;
+  }
+  return nMatches;
 }
 
 /**
@@ -568,36 +620,46 @@ int ORBMatcher::searchByProjection(VirtualFrame::SharedPtr pframe, const std::ve
  * @param pkf1          输入输出的被匹配的关键帧
  * @param map           输入输出的地图
  */
-int ORBMatcher::processFuseMps(const std::vector<cv::DMatch> &matches, std::vector<MapPointPtr> &fMapPoints,
-                               std::vector<MapPointPtr> &vMapPoints, KeyFramePtr &pkf1, MapPtr &map, bool bLoop) {
-    int nFuse = 0;
-    for (auto &match : matches) {
-        MapPoint::SharedPtr &pMp1 = fMapPoints[match.queryIdx];
-        MapPoint::SharedPtr &pMp2 = vMapPoints[match.trainIdx];
-        if (!pMp2 || pMp2->isBad())
-            continue;
-        if (!pMp1 || pMp1->isBad()) {
-            pkf1->setMapPoint(match.queryIdx, pMp2);
-            pMp2->addObservation(pkf1, match.queryIdx);
-            ++nFuse;
-        } else {
-            if (pMp1 == pMp2)
-                continue;
-            if (bLoop) {
-                MapPoint::replace(pMp2, pMp1, map);
-                ++nFuse;
-            } else {
-                int obs1 = pMp1->getObsNum();
-                int obs2 = pMp2->getObsNum();
-                if (obs1 >= obs2) {
-                    MapPoint::replace(pMp1, pMp2, map);
-                } else
-                    MapPoint::replace(pMp2, pMp1, map);
-                ++nFuse;
-            }
-        }
+int ORBMatcher::processFuseMps(const std::vector<cv::DMatch> &matches, std::vector<MapPointPtr> &fMapPoints, std::vector<MapPointPtr> &vMapPoints,
+                               KeyFramePtr &pkf1, MapPtr &map, bool bLoop)
+{
+  int nFuse = 0;
+  for (auto &match : matches)
+  {
+    MapPoint::SharedPtr &pMp1 = fMapPoints[match.queryIdx];
+    MapPoint::SharedPtr &pMp2 = vMapPoints[match.trainIdx];
+    if (!pMp2 || pMp2->isBad())
+      continue;
+    if (!pMp1 || pMp1->isBad())
+    {
+      pkf1->setMapPoint(match.queryIdx, pMp2);
+      pMp2->addObservation(pkf1, match.queryIdx);
+      ++nFuse;
     }
-    return nFuse;
+    else
+    {
+      if (pMp1 == pMp2)
+        continue;
+      if (bLoop)
+      {
+        MapPoint::replace(pMp2, pMp1, map);
+        ++nFuse;
+      }
+      else
+      {
+        int obs1 = pMp1->getObsNum();
+        int obs2 = pMp2->getObsNum();
+        if (obs1 >= obs2)
+        {
+          MapPoint::replace(pMp1, pMp2, map);
+        }
+        else
+          MapPoint::replace(pMp2, pMp1, map);
+        ++nFuse;
+      }
+    }
+  }
+  return nFuse;
 }
 
 /**
@@ -617,27 +679,30 @@ int ORBMatcher::processFuseMps(const std::vector<cv::DMatch> &matches, std::vect
  * @param map       输入的地图
  * @return int  成功融合的地图点数目（新增+替换）
  */
-int ORBMatcher::fuse(KeyFrame::SharedPtr pkf1, const std::vector<MapPoint::SharedPtr> &mapPoints, MapPtr map,
-                     bool bLoop, float th) {
-    std::vector<cv::DMatch> matches;
-    std::set<MapPoint::SharedPtr> sMapPoints;
-    std::vector<MapPoint::SharedPtr> vMapPoints;
-    auto fMapPoints = pkf1->getMapPoints();
-    for (auto &pMp : fMapPoints) {
-        if (pMp && !pMp->isBad()) {
-            sMapPoints.insert(pMp);
-        }
+int ORBMatcher::fuse(KeyFrame::SharedPtr pkf1, const std::vector<MapPoint::SharedPtr> &mapPoints, MapPtr map, bool bLoop, float th)
+{
+  std::vector<cv::DMatch> matches;
+  std::set<MapPoint::SharedPtr> sMapPoints;
+  std::vector<MapPoint::SharedPtr> vMapPoints;
+  auto fMapPoints = pkf1->getMapPoints();
+  for (auto &pMp : fMapPoints)
+  {
+    if (pMp && !pMp->isBad())
+    {
+      sMapPoints.insert(pMp);
     }
-    for (auto &pMp : mapPoints) {
-        /// 其他的筛选在searchByProjection都有
-        if (sMapPoints.find(pMp) != sMapPoints.end())
-            continue;
-        vMapPoints.push_back(pMp);
-    }
-    int nMatches = searchByProjection(pkf1, vMapPoints, th, matches, true);
-    fMapPoints = pkf1->getMapPoints();
-    int nFuse = processFuseMps(matches, fMapPoints, vMapPoints, pkf1, map, bLoop);
-    return nFuse;
+  }
+  for (auto &pMp : mapPoints)
+  {
+    /// 其他的筛选在searchByProjection都有
+    if (sMapPoints.find(pMp) != sMapPoints.end())
+      continue;
+    vMapPoints.push_back(pMp);
+  }
+  int nMatches = searchByProjection(pkf1, vMapPoints, th, matches, true);
+  fMapPoints = pkf1->getMapPoints();
+  int nFuse = processFuseMps(matches, fMapPoints, vMapPoints, pkf1, map, bLoop);
+  return nFuse;
 }
 
 /**
@@ -648,13 +713,14 @@ int ORBMatcher::fuse(KeyFrame::SharedPtr pkf1, const std::vector<MapPoint::Share
  * @param map  输入的参与地图点变换的地图
  * @return int 输出的融合数目（新增+替换）
  */
-int ORBMatcher::fuse(KeyFramePtr pkf1, KeyFramePtr pkf2, MapPtr map) {
-    std::vector<cv::DMatch> matches;
-    int nMatches = searchByProjection(pkf1, pkf2, matches, 3.0f, true);
-    auto fMapPoints = pkf1->getMapPoints();
-    auto vMapPoints = pkf2->getMapPoints();
-    int nFuse = processFuseMps(matches, fMapPoints, vMapPoints, pkf1, map);
-    return nFuse;
+int ORBMatcher::fuse(KeyFramePtr pkf1, KeyFramePtr pkf2, MapPtr map)
+{
+  std::vector<cv::DMatch> matches;
+  int nMatches = searchByProjection(pkf1, pkf2, matches, 3.0f, true);
+  auto fMapPoints = pkf1->getMapPoints();
+  auto vMapPoints = pkf2->getMapPoints();
+  int nFuse = processFuseMps(matches, fMapPoints, vMapPoints, pkf1, map);
+  return nFuse;
 }
 
 /**
@@ -667,47 +733,48 @@ int ORBMatcher::fuse(KeyFramePtr pkf1, KeyFramePtr pkf2, MapPtr map) {
  * @param matches   输出的匹配结果
  * @return int      输出的匹配成功的个数
  */
-int ORBMatcher::searchForTriangulation(KeyFrame::SharedPtr pkf1, KeyFrame::SharedPtr pkf2,
-                                       std::vector<cv::DMatch> &matches) {
-    int nAddMatches = searchByBow(pkf1, pkf2, matches, true);
-    if (!nAddMatches)
-        return 0;
-    cv::Mat T21 = pkf2->getPose() * pkf1->getPoseInv();
-    cv::Mat T12 = pkf1->getPose() * pkf2->getPoseInv();
-    cv::Mat R21 = T21.rowRange(0, 3).colRange(0, 3);
-    cv::Mat t21 = T21.rowRange(0, 3).colRange(3, 4);
-    cv::Mat R12 = T12.rowRange(0, 3).colRange(0, 3);
-    cv::Mat t12 = T12.rowRange(0, 3).colRange(3, 4);
-    float x21 = t21.at<float>(0, 0);
-    float y21 = t21.at<float>(1, 0);
-    float z21 = t21.at<float>(2, 0);
-    float x12 = t12.at<float>(0, 0);
-    float y12 = t12.at<float>(1, 0);
-    float z12 = t12.at<float>(2, 0);
-    cv::Mat t21ssm = (cv::Mat_<float>(3, 3) << 0, -z21, y21, z21, 0, -x21, -y21, x21, 0);
-    cv::Mat t12ssm = (cv::Mat_<float>(3, 3) << 0, -z12, y12, z12, 0, -x12, -y12, x12, 0);
-    cv::Mat F21 = Camera::mKInv.t() * t21ssm * R21 * Camera::mKInv;
-    cv::Mat F12 = Camera::mKInv.t() * t12ssm * R12 * Camera::mKInv;
-    float th1 = 0, th2 = 0;
-    std::vector<cv::DMatch> goodMatches;
-    for (std::size_t idx = 0; idx < nAddMatches; ++idx) {
-        const auto &match = matches[idx];
-        const auto kpt1 = pkf1->mvFeatsLeft[match.queryIdx];
-        const auto kpt2 = pkf2->mvFeatsLeft[match.trainIdx];
-        cv::Mat pt1 = (cv::Mat_<float>(3, 1) << kpt1.pt.x, kpt1.pt.y, 1);
-        cv::Mat pt2 = (cv::Mat_<float>(3, 1) << kpt2.pt.x, kpt2.pt.y, 1);
-        th1 = 5.991 * Frame::getScaledFactor2(kpt1.octave);
-        float dis1 = point2LineDistance(pt2.t() * F21, pt1);
-        if (dis1 > th1)
-            continue;
-        th2 = 5.991 * Frame::getScaledFactor2(kpt2.octave);
-        float dis2 = point2LineDistance(pt1.t() * F12, pt2);
-        if (dis2 > th2)
-            continue;
-        goodMatches.push_back(match);
-    }
-    std::swap(goodMatches, matches);
-    return goodMatches.size();
+int ORBMatcher::searchForTriangulation(KeyFrame::SharedPtr pkf1, KeyFrame::SharedPtr pkf2, std::vector<cv::DMatch> &matches)
+{
+  int nAddMatches = searchByBow(pkf1, pkf2, matches, true);
+  if (!nAddMatches)
+    return 0;
+  cv::Mat T21 = pkf2->getPose() * pkf1->getPoseInv();
+  cv::Mat T12 = pkf1->getPose() * pkf2->getPoseInv();
+  cv::Mat R21 = T21.rowRange(0, 3).colRange(0, 3);
+  cv::Mat t21 = T21.rowRange(0, 3).colRange(3, 4);
+  cv::Mat R12 = T12.rowRange(0, 3).colRange(0, 3);
+  cv::Mat t12 = T12.rowRange(0, 3).colRange(3, 4);
+  float x21 = t21.at<float>(0, 0);
+  float y21 = t21.at<float>(1, 0);
+  float z21 = t21.at<float>(2, 0);
+  float x12 = t12.at<float>(0, 0);
+  float y12 = t12.at<float>(1, 0);
+  float z12 = t12.at<float>(2, 0);
+  cv::Mat t21ssm = (cv::Mat_<float>(3, 3) << 0, -z21, y21, z21, 0, -x21, -y21, x21, 0);
+  cv::Mat t12ssm = (cv::Mat_<float>(3, 3) << 0, -z12, y12, z12, 0, -x12, -y12, x12, 0);
+  cv::Mat F21 = Camera::mKInv.t() * t21ssm * R21 * Camera::mKInv;
+  cv::Mat F12 = Camera::mKInv.t() * t12ssm * R12 * Camera::mKInv;
+  float th1 = 0, th2 = 0;
+  std::vector<cv::DMatch> goodMatches;
+  for (std::size_t idx = 0; idx < nAddMatches; ++idx)
+  {
+    const auto &match = matches[idx];
+    const auto kpt1 = pkf1->mvFeatsLeft[match.queryIdx];
+    const auto kpt2 = pkf2->mvFeatsLeft[match.trainIdx];
+    cv::Mat pt1 = (cv::Mat_<float>(3, 1) << kpt1.pt.x, kpt1.pt.y, 1);
+    cv::Mat pt2 = (cv::Mat_<float>(3, 1) << kpt2.pt.x, kpt2.pt.y, 1);
+    th1 = 5.991 * Frame::getScaledFactor2(kpt1.octave);
+    float dis1 = point2LineDistance(pt2.t() * F21, pt1);
+    if (dis1 > th1)
+      continue;
+    th2 = 5.991 * Frame::getScaledFactor2(kpt2.octave);
+    float dis2 = point2LineDistance(pt1.t() * F12, pt2);
+    if (dis2 > th2)
+      continue;
+    goodMatches.push_back(match);
+  }
+  std::swap(goodMatches, matches);
+  return goodMatches.size();
 }
 
 /**
@@ -717,11 +784,12 @@ int ORBMatcher::searchForTriangulation(KeyFrame::SharedPtr pkf1, KeyFrame::Share
  * @param point 输入的点[x, y, 1]的形式（3 * 1）
  * @return float 输出的距离
  */
-float ORBMatcher::point2LineDistance(const cv::Mat &param, const cv::Mat &point) {
-    float a = param.at<float>(0, 0);
-    float b = param.at<float>(0, 1);
-    assert(a != 0 && b != 0);
-    return std::abs(param.t().dot(point)) / std::sqrt(a * a + b * b);
+float ORBMatcher::point2LineDistance(const cv::Mat &param, const cv::Mat &point)
+{
+  float a = param.at<float>(0, 0);
+  float b = param.at<float>(0, 1);
+  assert(a != 0 && b != 0);
+  return std::abs(param.t().dot(point)) / std::sqrt(a * a + b * b);
 }
 
 /**
@@ -731,9 +799,10 @@ float ORBMatcher::point2LineDistance(const cv::Mat &param, const cv::Mat &point)
  * @param point 输入的关键点信息
  * @return float 输出的距离信息
  */
-float ORBMatcher::point2LineDistance(const cv::Mat &param, const cv::KeyPoint &point) {
-    cv::Mat pt = (cv::Mat_<float>(3, 1) << point.pt.x, point.pt.y, 1);
-    return point2LineDistance(param, pt);
+float ORBMatcher::point2LineDistance(const cv::Mat &param, const cv::KeyPoint &point)
+{
+  cv::Mat pt = (cv::Mat_<float>(3, 1) << point.pt.x, point.pt.y, 1);
+  return point2LineDistance(param, pt);
 }
 
 /**
@@ -743,16 +812,21 @@ float ORBMatcher::point2LineDistance(const cv::Mat &param, const cv::KeyPoint &p
  * @param matchMps      参与匹配的地图点
  * @param matches       匹配成功后对应的id
  */
-void ORBMatcher::setMapPoints(MapPoints &toMatchMps, MapPoints &matchMps, const Matches &matches) {
-    for (const auto &dmatch : matches) {
-        auto &matchPMp = matchMps[dmatch.trainIdx];
-        if (matchPMp && !matchPMp->isBad()) {
-            matchPMp->addMatchInTrack();
-            toMatchMps[dmatch.queryIdx] = matchPMp;
-        } else {
-            matchPMp = nullptr;
-        }
+void ORBMatcher::setMapPoints(MapPoints &toMatchMps, MapPoints &matchMps, const Matches &matches)
+{
+  for (const auto &dmatch : matches)
+  {
+    auto &matchPMp = matchMps[dmatch.trainIdx];
+    if (matchPMp && !matchPMp->isBad())
+    {
+      matchPMp->addMatchInTrack();
+      toMatchMps[dmatch.queryIdx] = matchPMp;
     }
+    else
+    {
+      matchPMp = nullptr;
+    }
+  }
 }
 
 /**
@@ -764,40 +838,46 @@ void ORBMatcher::setMapPoints(MapPoints &toMatchMps, MapPoints &matchMps, const 
  * @param rKp           右图的特征点（粗匹配成功）
  * @return float        得到的亚像素差值（精匹配失败返回0）
  */
-float ORBMatcher::pixelSADMatch(const cv::Mat &leftImage, const cv::Mat &rightImage, const cv::KeyPoint &lKp,
-                                const cv::KeyPoint &rKp) {
-    std::vector<float> scores;
-    float minScore = std::numeric_limits<float>::max();
-    int bestL = 0;
-    cv::Mat lI, rI;
-    bool leftRet = getPitch(lI, leftImage, lKp, 0);
-    if (!leftRet)
-        return 0;
-    for (int l = -mnL; l < mnL + 1; ++l) {
-        bool rightRet = getPitch(rI, rightImage, rKp, l);
-        if (!rightRet)
-            continue;
-        float score = SAD(lI, rI);
-        if (score < minScore) {
-            minScore = score;
-            bestL = l;
-        }
-        scores.push_back(score);
+float ORBMatcher::pixelSADMatch(const cv::Mat &leftImage, const cv::Mat &rightImage, const cv::KeyPoint &lKp, const cv::KeyPoint &rKp)
+{
+  std::vector<float> scores;
+  float minScore = std::numeric_limits<float>::max();
+  int bestL = 0;
+  cv::Mat lI, rI;
+  bool leftRet = getPitch(lI, leftImage, lKp, 0);
+  if (!leftRet)
+    return 0;
+  for (int l = -mnL; l < mnL + 1; ++l)
+  {
+    bool rightRet = getPitch(rI, rightImage, rKp, l);
+    if (!rightRet)
+      continue;
+    float score = SAD(lI, rI);
+    if (score < minScore)
+    {
+      minScore = score;
+      bestL = l;
     }
-    float deltaU = 0;
-    bestL += mnL;
-    if (bestL > 0 && bestL < scores.size() - 1) {
-        const float &score1 = scores[bestL - 1];
-        const float &score2 = scores[bestL];
-        const float &score3 = scores[bestL + 1];
-        deltaU = 0.5 * (score1 - score3) / (score1 + score3 - 2 * score2);
-        if (deltaU < 1 && deltaU > -1) {
-            deltaU *= ORBExtractor::getScaledFactors()[rKp.octave];
-        } else {
-            deltaU = 0;
-        }
+    scores.push_back(score);
+  }
+  float deltaU = 0;
+  bestL += mnL;
+  if (bestL > 0 && bestL < scores.size() - 1)
+  {
+    const float &score1 = scores[bestL - 1];
+    const float &score2 = scores[bestL];
+    const float &score3 = scores[bestL + 1];
+    deltaU = 0.5 * (score1 - score3) / (score1 + score3 - 2 * score2);
+    if (deltaU < 1 && deltaU > -1)
+    {
+      deltaU *= ORBExtractor::getScaledFactors()[rKp.octave];
     }
-    return deltaU;
+    else
+    {
+      deltaU = 0;
+    }
+  }
+  return deltaU;
 }
 
 /**
@@ -810,18 +890,18 @@ float ORBMatcher::pixelSADMatch(const cv::Mat &leftImage, const cv::Mat &rightIm
  * @param image2 图像块2
  * @return float SAD值，越小代表越相似
  */
-float ORBMatcher::SAD(const cv::Mat &image1, const cv::Mat &image2) {
-    assert(image1.rows == 2 * mnW + 1 && image2.rows == 2 * mnW + 1 && image1.cols == 2 * mnW + 1 &&
-           image2.cols == 2 * mnW + 1 && "图像不符合图像块大小的要求");
-    cv::Mat i1, i2;
-    image1.copyTo(i1);
-    image2.copyTo(i2);
-    i1.convertTo(i1, CV_32F);
-    i2.convertTo(i2, CV_32F);
-    cv::Mat one = cv::Mat::ones(2 * mnW + 1, 2 * mnW + 1, CV_32F);
-    i1 = i1 - one * i1.at<float>(mnW, mnW);
-    i2 = i2 - one * i2.at<float>(mnW, mnW);
-    return cv::norm(i1, i2, cv::NORM_L1);
+float ORBMatcher::SAD(const cv::Mat &image1, const cv::Mat &image2)
+{
+  assert(image1.rows == 2 * mnW + 1 && image2.rows == 2 * mnW + 1 && image1.cols == 2 * mnW + 1 && image2.cols == 2 * mnW + 1 && "图像不符合图像块大小的要求");
+  cv::Mat i1, i2;
+  image1.copyTo(i1);
+  image2.copyTo(i2);
+  i1.convertTo(i1, CV_32F);
+  i2.convertTo(i2, CV_32F);
+  cv::Mat one = cv::Mat::ones(2 * mnW + 1, 2 * mnW + 1, CV_32F);
+  i1 = i1 - one * i1.at<float>(mnW, mnW);
+  i2 = i2 - one * i2.at<float>(mnW, mnW);
+  return cv::norm(i1, i2, cv::NORM_L1);
 }
 
 /**
@@ -832,21 +912,23 @@ float ORBMatcher::SAD(const cv::Mat &image1, const cv::Mat &image2) {
  * @param pFrame 输入的帧
  * @return ORBMatcher::RowIdxDB vector<vector<size_t>>，行为索引，元素为符合行范围要求的右图特征点索引
  */
-ORBMatcher::RowIdxDB ORBMatcher::createRowIndexDB(Frame *pFrame) {
-    int rows = pFrame->getLeftImage().rows;
-    int cols = pFrame->getLeftImage().cols;
-    RowIdxDB rowIdxDB(rows, std::vector<std::size_t>());
-    const auto &rightKps = pFrame->getRightKeyPoints();
-    for (std::size_t idx = 0; idx < rightKps.size(); ++idx) {
-        const auto &kp = rightKps[idx];
-        float r = 2.0 * ORBExtractor::getScaledFactors()[kp.octave];
-        unsigned row = cvRound(kp.pt.y);
-        unsigned maxRow = std::min(rows, cvRound(row + r + 1));
-        unsigned minRow = std::max(0, cvRound(row - r));
-        for (unsigned row = minRow; row < maxRow; ++row)
-            rowIdxDB[row].push_back(idx);
-    }
-    return rowIdxDB;
+ORBMatcher::RowIdxDB ORBMatcher::createRowIndexDB(Frame *pFrame)
+{
+  int rows = pFrame->getLeftImage().rows;
+  int cols = pFrame->getLeftImage().cols;
+  RowIdxDB rowIdxDB(rows, std::vector<std::size_t>());
+  const auto &rightKps = pFrame->getRightKeyPoints();
+  for (std::size_t idx = 0; idx < rightKps.size(); ++idx)
+  {
+    const auto &kp = rightKps[idx];
+    float r = 2.0 * ORBExtractor::getScaledFactors()[kp.octave];
+    unsigned row = cvRound(kp.pt.y);
+    unsigned maxRow = std::min(rows, cvRound(row + r + 1));
+    unsigned minRow = std::max(0, cvRound(row - r));
+    for (unsigned row = minRow; row < maxRow; ++row)
+      rowIdxDB[row].push_back(idx);
+  }
+  return rowIdxDB;
 }
 
 /**
@@ -856,19 +938,21 @@ ORBMatcher::RowIdxDB ORBMatcher::createRowIndexDB(Frame *pFrame) {
  * @param b 描述子b
  * @return int 描述子之间距离
  */
-int ORBMatcher::descDistance(const cv::Mat &a, const cv::Mat &b) {
-    assert(a.rows == 1 && b.rows == 1 && "两描述子的行数不为1");
-    assert(a.cols == 32 && b.cols == 32 && "两描述子的列数不为32");
-    const int *pa = a.ptr<int32_t>();
-    const int *pb = b.ptr<int32_t>();
-    int dist = 0;
-    for (int i = 0; i < 8; ++i, ++pa, ++pb) {
-        unsigned v = *pa ^ *pb;
-        v = v - ((v >> 1) & 0x55555555);
-        v = (v & 0x33333333) + ((v >> 2) & 0x33333333);
-        dist += (((v + (v >> 4)) & 0xF0F0F0F) * 0x1010101) >> 24;
-    }
-    return dist;
+int ORBMatcher::descDistance(const cv::Mat &a, const cv::Mat &b)
+{
+  assert(a.rows == 1 && b.rows == 1 && "两描述子的行数不为1");
+  assert(a.cols == 32 && b.cols == 32 && "两描述子的列数不为32");
+  const int *pa = a.ptr<int32_t>();
+  const int *pb = b.ptr<int32_t>();
+  int dist = 0;
+  for (int i = 0; i < 8; ++i, ++pa, ++pb)
+  {
+    unsigned v = *pa ^ *pb;
+    v = v - ((v >> 1) & 0x55555555);
+    v = (v & 0x33333333) + ((v >> 2) & 0x33333333);
+    dist += (((v + (v >> 4)) & 0xF0F0F0F) * 0x1010101) >> 24;
+  }
+  return dist;
 }
 
 /**
@@ -880,24 +964,29 @@ int ORBMatcher::descDistance(const cv::Mat &a, const cv::Mat &b) {
  * @param ratio         最优比次最优的比例
  * @return ORBMatcher::BestMatchDesc pair<size_t, int>分别代表最短距离的候选索引和最短距离
  */
-ORBMatcher::BestMatchDesc ORBMatcher::getBestMatch(const cv::Mat &desc, const std::vector<cv::Mat> &candidateDesc,
-                                                   const std::vector<size_t> &candidateIdx, float &ratio) {
-    assert(!candidateIdx.empty() && "候选描述子索引为空");
-    int minDistance = INT_MAX;
-    int secondDistance = INT_MAX;
-    std::size_t minIdx = 0;
-    for (const std::size_t &idx : candidateIdx) {
-        cv::Mat cDesc = candidateDesc.at(idx);
-        int distance = ORBMatcher::descDistance(desc, cDesc);
-        if (distance < minDistance) {
-            minDistance = distance;
-            minIdx = idx;
-        } else if (distance < secondDistance) {
-            secondDistance = distance;
-        }
+ORBMatcher::BestMatchDesc ORBMatcher::getBestMatch(const cv::Mat &desc, const std::vector<cv::Mat> &candidateDesc, const std::vector<size_t> &candidateIdx,
+                                                   float &ratio)
+{
+  assert(!candidateIdx.empty() && "候选描述子索引为空");
+  int minDistance = INT_MAX;
+  int secondDistance = INT_MAX;
+  std::size_t minIdx = 0;
+  for (const std::size_t &idx : candidateIdx)
+  {
+    cv::Mat cDesc = candidateDesc.at(idx);
+    int distance = ORBMatcher::descDistance(desc, cDesc);
+    if (distance < minDistance)
+    {
+      minDistance = distance;
+      minIdx = idx;
     }
-    ratio = (float)minDistance / (float)secondDistance;
-    return std::make_pair(minIdx, minDistance);
+    else if (distance < secondDistance)
+    {
+      secondDistance = distance;
+    }
+  }
+  ratio = (float)minDistance / (float)secondDistance;
+  return std::make_pair(minIdx, minDistance);
 }
 
 /**
@@ -910,50 +999,55 @@ ORBMatcher::BestMatchDesc ORBMatcher::getBestMatch(const cv::Mat &desc, const st
  * @return true     图像块的中心没有超过图像边界的条件
  * @return false    图像块的中心超过了图像边界的条件
  */
-bool ORBMatcher::getPitch(cv::Mat &pitch, const cv::Mat &pyImg, const cv::KeyPoint &kp, int L) {
-    const auto &scaleFactors = ORBExtractor::getScaledFactors();
-    int x = cvFloor(kp.pt.x / scaleFactors[kp.octave]) + L;
-    int y = cvFloor(kp.pt.y / scaleFactors[kp.octave]);
+bool ORBMatcher::getPitch(cv::Mat &pitch, const cv::Mat &pyImg, const cv::KeyPoint &kp, int L)
+{
+  const auto &scaleFactors = ORBExtractor::getScaledFactors();
+  int x = cvFloor(kp.pt.x / scaleFactors[kp.octave]) + L;
+  int y = cvFloor(kp.pt.y / scaleFactors[kp.octave]);
 
-    pitch = pyImg.rowRange(y - mnW, y + mnW + 1);
-    pitch = pitch.colRange(x - mnW, x + mnW + 1);
-    return true;
+  pitch = pyImg.rowRange(y - mnW, y + mnW + 1);
+  pitch = pitch.colRange(x - mnW, x + mnW + 1);
+  return true;
 }
 
-void ORBMatcher::verifyAngle(std::vector<cv::DMatch> &matches, const std::vector<cv::KeyPoint> &keyPoints1,
-                             const std::vector<cv::KeyPoint> &keyPoints2) {
-    HistBin hist(mnBinNum);
-    for (const auto &dmatch : matches) {
-        float diff = keyPoints1[dmatch.queryIdx].angle - keyPoints2[dmatch.trainIdx].angle;
-        diff = diff >= 0 ? diff : 360 + diff;
-        int bin = diff / (360 / mnBinNum);
-        if (bin == 30)
-            bin = 0;
-        hist[bin].push_back(dmatch);
+void ORBMatcher::verifyAngle(std::vector<cv::DMatch> &matches, const std::vector<cv::KeyPoint> &keyPoints1, const std::vector<cv::KeyPoint> &keyPoints2)
+{
+  HistBin hist(mnBinNum);
+  for (const auto &dmatch : matches)
+  {
+    float diff = keyPoints1[dmatch.queryIdx].angle - keyPoints2[dmatch.trainIdx].angle;
+    diff = diff >= 0 ? diff : 360 + diff;
+    int bin = diff / (360 / mnBinNum);
+    if (bin == 30)
+      bin = 0;
+    hist[bin].push_back(dmatch);
+  }
+  std::set<std::size_t> goodBinIds;
+  for (std::size_t idx = 0; idx < mnBinChoose; ++idx)
+  {
+    int maxSize = 0;
+    std::size_t maxId = 0;
+    bool bInit = false;
+    for (std::size_t id = 0; id < mnBinNum; ++id)
+    {
+      int binSize = hist[id].size();
+      if (goodBinIds.find(id) != goodBinIds.end())
+        continue;
+      if (binSize > maxSize)
+      {
+        maxId = id;
+        maxSize = binSize;
+        bInit = true;
+      }
     }
-    std::set<std::size_t> goodBinIds;
-    for (std::size_t idx = 0; idx < mnBinChoose; ++idx) {
-        int maxSize = 0;
-        std::size_t maxId = 0;
-        bool bInit = false;
-        for (std::size_t id = 0; id < mnBinNum; ++id) {
-            int binSize = hist[id].size();
-            if (goodBinIds.find(id) != goodBinIds.end())
-                continue;
-            if (binSize > maxSize) {
-                maxId = id;
-                maxSize = binSize;
-                bInit = true;
-            }
-        }
-        if (bInit)
-            /// 代表所有的bin的大小都为0，添加与否都没意义了
-            goodBinIds.insert(maxId);
-    }
-    std::vector<cv::DMatch> ret;
-    for (auto &idx : goodBinIds)
-        std::copy(hist[idx].begin(), hist[idx].end(), std::back_inserter(ret));
-    std::swap(ret, matches);
+    if (bInit)
+      /// 代表所有的bin的大小都为0，添加与否都没意义了
+      goodBinIds.insert(maxId);
+  }
+  std::vector<cv::DMatch> ret;
+  for (auto &idx : goodBinIds)
+    std::copy(hist[idx].begin(), hist[idx].end(), std::back_inserter(ret));
+  std::swap(ret, matches);
 }
 
 /**
@@ -966,25 +1060,27 @@ void ORBMatcher::verifyAngle(std::vector<cv::DMatch> &matches, const std::vector
  * @param matches   输入的两图像之间的匹配信息
  */
 void ORBMatcher::showMatches(const cv::Mat &image1, const cv::Mat &image2, const std::vector<cv::KeyPoint> &keypoint1,
-                             const std::vector<cv::KeyPoint> &keypoint2, const std::vector<cv::DMatch> &matches) {
-    cv::Mat showImage;
-    std::vector<cv::Mat> imgs{image1, image2};
-    cv::hconcat(imgs, showImage);
-    cv::cvtColor(showImage, showImage, cv::COLOR_GRAY2BGR);
-    std::vector<cv::KeyPoint> rightKps, leftKps;
-    for (const auto &dmatch : matches) {
-        const auto &lkp = keypoint1[dmatch.queryIdx];
-        cv::KeyPoint rkp = keypoint2[dmatch.trainIdx];
-        rkp.pt.x = rkp.pt.x + image1.cols;
-        cv::line(showImage, lkp.pt, rkp.pt, cv::Scalar(255, 0, 0));
-        rightKps.push_back(rkp);
-        leftKps.push_back(lkp);
-    }
-    cv::drawKeypoints(showImage, leftKps, showImage, cv::Scalar(0, 255, 0));
-    cv::drawKeypoints(showImage, rightKps, showImage, cv::Scalar(0, 0, 255));
-    cv::imshow("showImage", showImage);
-    cv::waitKey(0);
-    cv::destroyAllWindows();
+                             const std::vector<cv::KeyPoint> &keypoint2, const std::vector<cv::DMatch> &matches)
+{
+  cv::Mat showImage;
+  std::vector<cv::Mat> imgs{image1, image2};
+  cv::hconcat(imgs, showImage);
+  cv::cvtColor(showImage, showImage, cv::COLOR_GRAY2BGR);
+  std::vector<cv::KeyPoint> rightKps, leftKps;
+  for (const auto &dmatch : matches)
+  {
+    const auto &lkp = keypoint1[dmatch.queryIdx];
+    cv::KeyPoint rkp = keypoint2[dmatch.trainIdx];
+    rkp.pt.x = rkp.pt.x + image1.cols;
+    cv::line(showImage, lkp.pt, rkp.pt, cv::Scalar(255, 0, 0));
+    rightKps.push_back(rkp);
+    leftKps.push_back(lkp);
+  }
+  cv::drawKeypoints(showImage, leftKps, showImage, cv::Scalar(0, 255, 0));
+  cv::drawKeypoints(showImage, rightKps, showImage, cv::Scalar(0, 0, 255));
+  cv::imshow("showImage", showImage);
+  cv::waitKey(0);
+  cv::destroyAllWindows();
 }
 
 int ORBMatcher::mnMaxThreshold = 100;
