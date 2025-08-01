@@ -38,13 +38,13 @@ ORBExtractor.minThFAST: 7
 # 路径信息
 Path.Vocabulary: "/home/lucky-lu/Projects/ORB_SLAM2_ROS2/Vocabulary/ORBvoc.txt"
 Path.BriefTemplate: "/home/lucky-lu/Projects/ORB_SLAM2_ROS2/config/brief_template.txt"
-Path.Map: "/home/lucky-lu/Projects/ORB_SLAM2_ROS2/map/KITTI"
+Path.Map: "/home/lucky-lu/Projects/ORB_SLAM2_ROS2/map"
 
 # 是否以仅跟踪模式启动
-OnlyTracking: 0
+OnlyTracking: 1
 
 # 是否加载或保存地图
-Map.LoadMap: 0
+Map.LoadMap: 1
 Map.SaveMap: 0
 
 # 可视化参数

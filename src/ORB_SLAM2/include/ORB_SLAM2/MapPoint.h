@@ -6,6 +6,8 @@
 #include <opencv2/opencv.hpp>
 
 #include "KeyFrame.h"
+#include "MapPoint.pb.h"
+
 namespace ORB_SLAM2_ROS2
 {
 class Map;
@@ -45,12 +47,20 @@ public:
   /// 基于输入流的构造
   static MapPoint::SharedPtr create(std::istream &ifs, MapPointInfo &info, bool &notEof)
   {
-    std::size_t nMaxID = 0;
     auto ptr = MapPoint::SharedPtr(new MapPoint(ifs, info, notEof));
-    if (ptr->getID() > nMaxID)
-    {
-      mnNextId = nMaxID + 1;
-    }
+    if (ptr->getID() > mnNextId)
+      mnNextId = ptr->getID() + 1;
+
+    return ptr;
+  }
+
+  /// 基于protobuf的工厂函数
+  static MapPoint::SharedPtr create(const orbslam2::MapPointData &data, MapPointInfo &info)
+  {
+    auto ptr = MapPoint::SharedPtr(new MapPoint(data, info));
+    if (ptr->getID() > mnNextId)
+      mnNextId = ptr->getID() + 1;
+
     return ptr;
   }
 
@@ -287,6 +297,12 @@ public:
   /// 获取地图点的最大id
   static const std::size_t getMaxID() { return mnNextId - 1; }
 
+  // 实现基于protobuf的序列化操作
+  bool serializeToProtobuf(orbslam2::MapPointData &data) const;
+
+  // 实现基于protobuf的反序列化操作
+  bool deserializeFromProtobuf(const orbslam2::MapPointData &data, MapPointInfo &mpInfo);
+
 private:
   /// 用于关键帧构造的地图点
   MapPoint(cv::Mat mP3d, KeyFramePtr pRefKf, std::size_t nObs);
@@ -296,6 +312,9 @@ private:
 
   /// 基于输入流的构造函数
   MapPoint(std::istream &ifs, MapPointInfo &info, bool &notEof);
+
+  /// 基于protobuf的构造函数
+  MapPoint(const orbslam2::MapPointData &data, MapPointInfo &mpInfo);
 
   static unsigned int mnNextId;   ///< 下一个地图点的id
   unsigned int mId;               ///< this的地图点id

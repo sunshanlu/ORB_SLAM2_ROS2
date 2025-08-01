@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+import "MapPoint.proto";
+import "Keyframe.proto";
+
+package orbslam2;
+
+
+message MapData{
+  KeyFrameList keyframes = 1;  //< 地图中的关键帧列表
+  MapPointList mappoints = 2;  //< 地图中的地图点列表
+}

@@ -17,10 +17,10 @@
 
 1. 去掉了`ORB_SLAM2`中，对单目相机的支持，**仅支持**双目和深度相机；
 2. 实现了算法和`ROS2`进行了兼容，可以快速融入到基于**ROS2**的项目中去；
-3. 基于`C++17`标准，使用**智能指针**代替普通指针，提高内存管理的安全性，但增加了额外的时间开销，使用`execution`策略来提高效率，但与原来`ORB-SLAM2`系统相比，精度保持一致，但仍存在`20%`的额外时间开销；
+3. 使用**智能指针**代替普通指针，提高内存管理的安全性，但增加了额外的时间开销，与原来`ORB-SLAM2`系统相比，精度保持一致，但存在`20%`的额外时间开销；
 4. 基于目前主流的三方库，保证了依赖的**主流兼容性**；
-5. 基于**多线程**和**输入输出流**，实现了高效的**地图的保存和加载**功能；
-6. `10000`行代码的工作量，使用`cloc`工具统计代码`C++`代码行数如下。
+5. 基于**多线程**和**输入输出流**和`Protobuf`，实现了高效的**地图的保存和加载**功能,与字符串实现相比，时间开销降低`78%`，地图存储开销降低`50%`；
+6. `10000+`行代码的工作量，使用`cloc`工具统计代码`C++`代码行数如下。
 
 <div align="center">
 	<img src="./res/code_nums.png" alt="ORB_SLAM2_ROS2" width=800>
@@ -38,13 +38,16 @@
 7. [ROS2 humble](https://docs.ros.org/en/humble/Installation/Ubuntu-Install-Debians.html)
 8. `Eigen3`
 9. `cv_bridge`
+10. `Protobuf`
 
 针对`DBoW3`、`g2o`、`Pangolin`、`Sophus`和`ROS2`，需要去上述给定的地址下载源码，编译安装。
 
 对于没有指定地址的三方库，可以使用如下命令安装：
 ```shell
 sudo apt update
-sudo apt install libeigen3-dev ros-humble-cv-bridge
+sudo apt install libeigen3-dev 
+sudo apt install ros-humble-cv-bridge 
+sudo apt install protobuf-compiler
 ```
 
 ## 3. 编译

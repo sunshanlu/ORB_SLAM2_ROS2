@@ -543,10 +543,15 @@ std::ostream &operator<<(std::ostream &os, const MapPoint &mp)
     RCLCPP_ERROR(rclcpp::get_logger("ORB_SLAM2"), "地图点没有参考关键帧");
     return os;
   }
+  // 基本信息和跟踪线程统计信息
   os << mp.mId << " " << mp.mnMaxDistance << " " << mp.mnMinDistance << " " << refkf->getID() << " " << mp.mnRefFeatID << " " << mp.mnMatchesInTrack << " "
      << mp.mnInliersInTrack << std::endl;
+
+  // 三维点位置和观测方向
   os << mp.mPoint3d.at<float>(0) << " " << mp.mPoint3d.at<float>(1) << " " << mp.mPoint3d.at<float>(2) << " ";
   os << mp.mViewDirection.at<float>(0) << " " << mp.mViewDirection.at<float>(1) << " " << mp.mViewDirection.at<float>(2) << std::endl;
+
+  // 保存地图点描述子
   for (int i = 0; i < 32; ++i)
     os << (int)mp.mDescriptor.at<uchar>(i) << " ";
   os << std::endl;
@@ -599,5 +604,78 @@ MapPoint::MapPoint(std::istream &ifs, MapPointInfo &info, bool &notEof)
 }
 
 unsigned int MapPoint::mnNextId = 0;
+
+// 实现基于protobuf的序列化操作
+bool MapPoint::serializeToProtobuf(orbslam2::MapPointData &data) const
+{
+  auto refKf = mpRefKf.lock();
+  if (!refKf || refKf->isBad())
+    return false;
+
+  // 地图点基本信息
+  data.set_id(mId);
+  data.set_max_distance(mnMaxDistance);
+  data.set_min_distance(mnMinDistance);
+
+  // 参考关键帧信息
+  data.set_ref_kf_id(refKf->getID());
+  data.set_ref_feat_id(mnRefFeatID);
+
+  // 跟踪线程信息
+  data.set_matches_in_track(mnMatchesInTrack);
+  data.set_inliers_in_track(mnInliersInTrack);
+
+  // 3D位置
+  auto *position = data.mutable_position();
+  position->set_x(mPoint3d.at<float>(0));
+  position->set_y(mPoint3d.at<float>(1));
+  position->set_z(mPoint3d.at<float>(2));
+
+  // 观测方向
+  auto *viewDirection = data.mutable_view_direction();
+  viewDirection->set_x(mViewDirection.at<float>(0));
+  viewDirection->set_y(mViewDirection.at<float>(1));
+  viewDirection->set_z(mViewDirection.at<float>(2));
+
+  // 地图点描述子
+  auto *descriptor = data.mutable_desc();
+  descriptor->set_data(reinterpret_cast<const char *>(mDescriptor.data), 32);
+
+  return true;
+}
+
+// 实现基于protobuf的反序列化操作
+bool MapPoint::deserializeFromProtobuf(const orbslam2::MapPointData &data, MapPointInfo &mpInfo)
+{
+  // 地图点基本信息
+  mId = data.id();
+  mnMaxDistance = data.max_distance();
+  mnMinDistance = data.min_distance();
+
+  // 参考关键帧信息
+  mpInfo.mnRefKFid = data.ref_kf_id();
+  mpInfo.mnRefFeatID = data.ref_feat_id();
+
+  // 跟踪线程信息
+  mnMatchesInTrack = data.matches_in_track();
+  mnInliersInTrack = data.inliers_in_track();
+
+  // 世界坐标系下的3D位置
+  mPoint3d = (cv::Mat_<float>(3, 1) << data.position().x(), data.position().y(), data.position().z());
+
+  // 观测方向
+  mViewDirection = (cv::Mat_<float>(3, 1) << data.view_direction().x(), data.view_direction().y(), data.view_direction().z());
+
+  // 地图点描述子
+  mDescriptor = cv::Mat(1, 32, CV_8U);
+  memcpy(mDescriptor.data, data.desc().data().c_str(), 32);
+  return true;
+}
+
+MapPoint::MapPoint(const orbslam2::MapPointData &data, MapPointInfo &mpInfo)
+    : mObs(KeyFrame::weakCompare)
+{
+  deserializeFromProtobuf(data, mpInfo);
+}
 
 } // namespace ORB_SLAM2_ROS2

@@ -4,7 +4,11 @@
 #include <mutex>
 #include <set>
 #include <unordered_map>
+#include <map>
 #include <vector>
+
+#include "ORB_SLAM2/KeyFrame.h"
+#include "ORB_SLAM2/MapPoint.h"
 
 namespace ORB_SLAM2_ROS2
 {
@@ -92,6 +96,16 @@ public:
 
   /// 向指定文件中加载地图
   static void loadFromTxtFile(const std::string &DirPath, SharedPtr pMap);
+
+  /// 将地图保存到protobuf文件中
+  void saveToProtobuf(const std::string &DirPath);
+
+  /// 从protobuf文件中加载地图
+  static void loadFromProtobuf(const std::string &DirPath, SharedPtr pMap);
+
+  /// 处理地图元素之间的连接关系
+  static void processConnection(std::map<std::size_t, std::pair<KeyFrame::SharedPtr, KeyFrameInfo>> &mKeyFramesInfo,
+                                std::map<std::size_t, std::pair<MapPoint::SharedPtr, MapPointInfo>> &mMapPointsInfo);
 
   /// 获取跟踪线程中最应为参考关键帧的关键帧
   KeyFramePtr getTrackingRef(const FramePtr &pTcurrFrame, const std::size_t &oldRefID);

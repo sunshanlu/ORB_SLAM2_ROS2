@@ -1,0 +1,70 @@
+// keyframe.proto
+syntax = "proto3";
+
+package orbslam2;
+
+// 特征点信息
+message KeyPoint {
+  float x = 1;      //< 特征点像素坐标x位置
+  float y = 2;      //< 特征点像素坐标y位置
+  int32 octave = 3; //< 特征点所在金字塔层级
+  float angle = 4;  //< 特征点方向角度
+}
+
+// 32字节的描述子
+message Descriptor {
+  bytes data = 1;
+}
+
+// 词袋单词
+message BowVector {
+  map<uint32, double> words = 1;
+}
+
+// 词袋特征向量
+message FeatureVector {
+  message FeatureNode {
+    uint32 node_id = 1;
+    repeated uint32 feature_ids = 2;
+  }
+  repeated FeatureNode nodes = 1;
+}
+
+// 位姿信息
+message Pose {
+  repeated float rotation = 1;     //< 3x3旋转矩阵
+  repeated float translation = 2;  //< 3x1平移向量
+}
+
+// 共视关键帧信息
+message ConnectedKeyFrame {
+  uint64 id = 1;    //< 共视关键帧id
+  int32 weight = 2; //< 共视关键帧权重（共视地图点数量）
+}
+
+message KeyFrameData {
+  // 关键帧基本信息
+  uint64 id = 1;
+  float max_u = 2;
+  float max_v = 3;
+  float min_u = 4;
+  float min_v = 5;
+
+  repeated KeyPoint keypoints = 6;                //< opencv结构存储的fast特征点信息
+  repeated float right_u = 7;                     //< 双目相机下对应的特征点u像素坐标位置
+  repeated float depths = 8;                      //< 特征点在当前坐标系下的深度信息
+  repeated Descriptor descriptors = 9;            //< 特征点对应的描述子信息
+  BowVector bow_vector = 10;                      //< 关键帧中单词信息
+  FeatureVector feature_vector = 11;              //< 某些节点下包含的关键点id
+  Pose pose = 12;                                 //< Tcw位姿
+  repeated ConnectedKeyFrame connected_kfs = 13;  //< 共视关键帧信息
+  repeated uint64 children_ids = 14;              //< 当前关键帧的子关键帧id
+  repeated uint64 loop_edges = 15;                //< 与其产生回环的关键帧id
+  repeated int64 map_points = 16;                 //< 关键帧的关键点对应的地图点
+}
+
+message KeyFrameList {
+  uint64 next_id = 1;
+  repeated float scale_factors = 2;
+  repeated KeyFrameData keyframes = 3;
+}

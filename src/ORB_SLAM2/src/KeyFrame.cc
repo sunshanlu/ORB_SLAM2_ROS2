@@ -249,6 +249,8 @@ bool KeyFrame::readFromStream(std::istream &is, KeyFrameInfo &kfInfo)
   if (!getline(is, lineStr))
     return false;
   streamStr << lineStr;
+
+  // 读取关键帧基本信息
   streamStr >> mnId >> mfMaxU >> mfMaxV >> mfMinU >> mfMinV;
 
   streamStr.clear();
@@ -261,11 +263,14 @@ bool KeyFrame::readFromStream(std::istream &is, KeyFrameInfo &kfInfo)
     streamStr >> kp.pt.x >> kp.pt.y >> kp.octave >> kp.angle >> rightU >> depth;
     if (!streamStr)
       break;
+
+    // 读取特征点信息
     mvFeatsLeft.push_back(kp);
     mvFeatsRightU.push_back(rightU);
     mvDepths.push_back(depth);
   }
 
+  // 读取描述子信息
   streamStr.clear();
   getline(is, lineStr);
   streamStr << lineStr;
@@ -283,6 +288,7 @@ bool KeyFrame::readFromStream(std::istream &is, KeyFrameInfo &kfInfo)
     mvLeftDescriptor.push_back(Desc);
   }
 
+  // 填充词袋向量
   streamStr.clear();
   getline(is, lineStr);
   streamStr << lineStr;
@@ -296,6 +302,7 @@ bool KeyFrame::readFromStream(std::istream &is, KeyFrameInfo &kfInfo)
     mBowVec.insert({worldID, worldValue});
   }
 
+  // 填充特征向量
   streamStr.clear();
   getline(is, lineStr);
   streamStr << lineStr;
@@ -316,6 +323,7 @@ bool KeyFrame::readFromStream(std::istream &is, KeyFrameInfo &kfInfo)
     mFeatVec.insert({NodeID, FeaturesID});
   }
 
+  // 读取关键帧位姿
   streamStr.clear();
   getline(is, lineStr);
   streamStr << lineStr;
@@ -327,6 +335,7 @@ bool KeyFrame::readFromStream(std::istream &is, KeyFrameInfo &kfInfo)
     streamStr >> tcw.at<float>(i);
   setPose(Rcw, tcw);
 
+  // 关键帧之间的共视关系
   streamStr.clear();
   getline(is, lineStr);
   streamStr << lineStr;
@@ -340,6 +349,7 @@ bool KeyFrame::readFromStream(std::istream &is, KeyFrameInfo &kfInfo)
     kfInfo.mmAllConnected.insert({id, weight});
   }
 
+  // 读取子关键帧
   streamStr.clear();
   getline(is, lineStr);
   streamStr << lineStr;
@@ -352,6 +362,7 @@ bool KeyFrame::readFromStream(std::istream &is, KeyFrameInfo &kfInfo)
     kfInfo.mvChildren.push_back(id);
   }
 
+  // 读取回环关键帧
   streamStr.clear();
   getline(is, lineStr);
   streamStr << lineStr;
@@ -364,6 +375,7 @@ bool KeyFrame::readFromStream(std::istream &is, KeyFrameInfo &kfInfo)
     kfInfo.mvLoopEdges.push_back(id);
   }
 
+  // 读取地图点
   streamStr.clear();
   getline(is, lineStr);
   streamStr << lineStr;
@@ -530,6 +542,224 @@ KeyFrame::KeyFrame(std::istream &ifs, KeyFrameInfo &kfInfo, bool &notEof)
   notEof = readFromStream(ifs, kfInfo);
   if (!notEof)
     return;
+  VirtualFrame::initGrid();
+}
+
+/**
+ * @brief 基于protobuf,实现keyframe的序列化操作，用于保存数据
+ *
+ * @param data 输出的关键帧的protobuf数据
+ */
+void KeyFrame::serializeToProtobuf(orbslam2::KeyFrameData &data) const
+{
+  // todo 需要设置全局信息
+
+  data.set_id(mnId);
+  data.set_max_u(mfMaxU);
+  data.set_max_v(mfMaxV);
+  data.set_min_u(mfMinU);
+  data.set_min_v(mfMinV);
+
+  // 特征点信息，右图像素坐标和深度信息
+  std::size_t nKp = mvFeatsLeft.size();
+  for (std::size_t idx = 0; idx < nKp; ++idx)
+  {
+    const auto &kp = mvFeatsLeft[idx];
+    auto *keypoint = data.add_keypoints();
+    keypoint->set_x(kp.pt.x);
+    keypoint->set_y(kp.pt.y);
+    keypoint->set_octave(kp.octave);
+    keypoint->set_angle(kp.angle);
+    data.add_right_u(mvFeatsRightU[idx]);
+    data.add_depths(mvDepths[idx]);
+  }
+
+  // 保存关键点描述子
+  for (const auto &desc : mvLeftDescriptor)
+  {
+    auto *descriptor = data.add_descriptors();
+    descriptor->set_data(desc.data, 32);
+  }
+
+  // 保存词袋向量
+  auto *bowVec = data.mutable_bow_vector();
+  for (const auto &item : mBowVec)
+  {
+    (*bowVec->mutable_words())[item.first] = item.second;
+  }
+
+  // 保存词袋特征向量
+  auto *featVec = data.mutable_feature_vector();
+  for (const auto &item : mFeatVec)
+  {
+    auto *node = featVec->add_nodes();
+    node->set_node_id(item.first);
+    for (const auto &featureId : item.second)
+      node->add_feature_ids(featureId);
+  }
+
+  // 保存关键帧位姿
+  auto *pose = data.mutable_pose();
+  for (int i = 0; i < 3; ++i)
+    for (int j = 0; j < 3; ++j)
+      pose->add_rotation(mRcw.at<float>(i, j));
+  for (int i = 0; i < 3; ++i)
+    pose->add_translation(mtcw.at<float>(i));
+
+  // 保存关键帧关联关系
+  for (const auto &connected : mmConnectedKfs)
+  {
+    auto pkf = connected.first.lock();
+    if (pkf && !pkf->isBad())
+    {
+      auto *conn = data.add_connected_kfs();
+      conn->set_id(pkf->getID());
+      conn->set_weight(connected.second);
+    }
+  }
+
+  // 保存子关键帧
+  for (const auto &childWeak : mspChildren)
+  {
+    auto child = childWeak.lock();
+    if (child && !child->isBad())
+      data.add_children_ids(child->getID());
+  }
+
+  // 保存回环关键帧
+  for (const auto &loopEdgeWeak : mvpLoopEdges)
+  {
+    auto loopEdge = loopEdgeWeak.lock();
+    if (loopEdge && !loopEdge->isBad())
+      data.add_loop_edges(loopEdge->getID());
+  }
+
+  // 保存关键帧对应地图点id
+  for (const auto &mp : mvpMapPoints)
+  {
+    if (mp && !mp->isBad())
+      data.add_map_points(mp->getID());
+    else
+      data.add_map_points(-1);
+  }
+}
+
+bool KeyFrame::deserializeFromProtobuf(const orbslam2::KeyFrameData &data, KeyFrameInfo &kfInfo)
+{
+  // todo 注意，这里需要更新keyframe的静态变量，scale和nextid
+
+  // 读取关键帧基本信息
+  mnId = data.id();
+  mfMaxU = data.max_u();
+  mfMaxV = data.max_v();
+  mfMinU = data.min_u();
+  mfMinV = data.min_v();
+
+  mvFeatsLeft.clear();
+  mvFeatsRightU.clear();
+  mvDepths.clear();
+
+  int nKp = data.keypoints_size();
+  mvFeatsLeft.reserve(nKp);
+  mvFeatsRightU.reserve(nKp);
+  mvDepths.reserve(nKp);
+
+  // 读取特征点信息
+  for (int idx = 0; idx < nKp; ++idx)
+  {
+    const auto &kp_data = data.keypoints(idx);
+    cv::KeyPoint kp;
+    kp.pt.x = kp_data.x();
+    kp.pt.y = kp_data.y();
+    kp.octave = kp_data.octave();
+    kp.angle = kp_data.angle();
+    mvFeatsLeft.push_back(kp);
+    mvFeatsRightU.push_back(data.right_u(idx));
+    mvDepths.push_back(data.depths(idx));
+  }
+
+  // 读取描述子信息
+  mvLeftDescriptor.clear();
+  mvLeftDescriptor.reserve(data.descriptors_size());
+  for (int idx = 0; idx < data.descriptors_size(); ++idx)
+  {
+    const auto &desc_data = data.descriptors(idx);
+    cv::Mat descriptor = cv::Mat(1, 32, CV_8U);
+    if (desc_data.data().size() >= 32)
+      memcpy(descriptor.data, desc_data.data().c_str(), 32);
+    mvLeftDescriptor.push_back(descriptor);
+  }
+
+  // 读取词袋向量
+  mBowVec.clear();
+  const auto &bow_data = data.bow_vector();
+  for (const auto &word : bow_data.words())
+    mBowVec.insert({word.first, word.second});
+
+  // 填充词袋特征向量
+  mFeatVec.clear();
+  const auto &feat_data = data.feature_vector();
+  for (int i = 0; i < feat_data.nodes_size(); ++i)
+  {
+    const auto &node = feat_data.nodes(i);
+    std::vector<unsigned int> feature_ids;
+    feature_ids.reserve(node.feature_ids_size());
+
+    for (int j = 0; j < node.feature_ids_size(); ++j)
+      feature_ids.push_back(node.feature_ids(j));
+
+    mFeatVec.insert({node.node_id(), feature_ids});
+  }
+
+  // 读取关键帧位姿
+  const auto &pose_data = data.pose();
+  cv::Mat Rcw = cv::Mat::eye(3, 3, CV_32F);
+  cv::Mat tcw = cv::Mat::zeros(3, 1, CV_32F);
+  for (int i = 0; i < 3; ++i)
+    for (int j = 0; j < 3; ++j)
+      Rcw.at<float>(i, j) = pose_data.rotation(i * 3 + j);
+  for (int i = 0; i < 3; ++i)
+    tcw.at<float>(i) = pose_data.translation(i);
+  setPose(Rcw, tcw);
+
+  // 读取关键帧之间的共视关系
+  kfInfo.mmAllConnected.clear();
+  for (int i = 0; i < data.connected_kfs_size(); ++i)
+  {
+    const auto &conn = data.connected_kfs(i);
+    kfInfo.mmAllConnected.insert({conn.id(), conn.weight()});
+  }
+
+  // 读取子关键帧
+  kfInfo.mvChildren.clear();
+  kfInfo.mvChildren.reserve(data.children_ids_size());
+  for (int i = 0; i < data.children_ids_size(); ++i)
+    kfInfo.mvChildren.push_back(data.children_ids(i));
+
+  // 读取回环关键帧
+  kfInfo.mvLoopEdges.clear();
+  kfInfo.mvLoopEdges.reserve(data.loop_edges_size());
+  for (int i = 0; i < data.loop_edges_size(); ++i)
+    kfInfo.mvLoopEdges.push_back(data.loop_edges(i));
+
+  // 读取地图点
+  kfInfo.mvMapPoints.clear();
+  kfInfo.mvMapPoints.reserve(data.map_points_size());
+  for (int i = 0; i < data.map_points_size(); ++i)
+    kfInfo.mvMapPoints.push_back(data.map_points(i));
+
+  return true;
+}
+
+/// 基于protobuf的构造函数
+KeyFrame::KeyFrame(const orbslam2::KeyFrameData &data, KeyFrameInfo &kfInfo)
+    : mspChildren(weakCompare)
+    , mmConnectedKfs(weakCompare)
+{
+  mTcw = cv::Mat::eye(4, 4, CV_32F);
+  mTwc = cv::Mat::eye(4, 4, CV_32F);
+
+  deserializeFromProtobuf(data, kfInfo);
   VirtualFrame::initGrid();
 }
 

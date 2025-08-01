@@ -4,6 +4,7 @@
 #include <memory>
 
 #include "Frame.h"
+#include "Keyframe.pb.h"
 #include "ORBMatcher.h"
 
 namespace ORB_SLAM2_ROS2
@@ -38,9 +39,17 @@ public:
     return pKframe;
   }
 
+  // 基于输入流的工厂函数
   static SharedPtr create(std::istream &is, KeyFrameInfo &kfInfo, bool &notEof)
   {
     SharedPtr pKframe = SharedPtr(new KeyFrame(is, kfInfo, notEof));
+    return pKframe;
+  }
+
+  // 基于protobuf的工厂函数
+  static SharedPtr create(const orbslam2::KeyFrameData &data, KeyFrameInfo &kfInfo)
+  {
+    SharedPtr pKframe = SharedPtr(new KeyFrame(data, kfInfo));
     return pKframe;
   }
 
@@ -195,6 +204,12 @@ public:
     return iter->second;
   }
 
+  // 实现基于protobuf的序列化操作
+  void serializeToProtobuf(orbslam2::KeyFrameData &data) const;
+
+  // 实现基于protobuf的反序列化操作
+  bool deserializeFromProtobuf(const orbslam2::KeyFrameData &data, KeyFrameInfo &kfInfo);
+
 private:
   /// 更新连接信息
   SharedPtr updateConnections();
@@ -215,6 +230,9 @@ private:
   }
 
   KeyFrame(std::istream &ifs, KeyFrameInfo &kfInfo, bool &isEof);
+
+  // 基于protobuf的构造函数
+  KeyFrame(const orbslam2::KeyFrameData &data, KeyFrameInfo &kfInfo);
 
   static std::size_t mnNextId;                    ///< 下一个关键帧的id
   std::size_t mnId;                               ///< 当前关键帧的id

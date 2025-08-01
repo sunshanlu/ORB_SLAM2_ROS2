@@ -98,7 +98,7 @@ System::System(std::string ConfigPath)
   if (config.mbLoadMap)
   {
     RCLCPP_INFO(get_logger(), "开始加载地图文件，需要等待几分钟。。。。");
-    Map::loadFromTxtFile(config.mMapPath, mpMap);
+    Map::loadFromProtobuf(config.mMapPath, mpMap);
     RCLCPP_INFO(get_logger(), "地图加载成功！");
   }
   mpKfDB = std::make_shared<KeyFrameDB>(pVocab->size());
@@ -194,7 +194,7 @@ System::~System()
   if (mbSaveMap)
   {
     RCLCPP_INFO(rclcpp::get_logger("ORB_SLAM2"), "正在保存地图，请稍后");
-    mpMap->saveToTxtFile(mMapPath);
+    mpMap->saveToProtobuf(mMapPath);
   }
 }
 

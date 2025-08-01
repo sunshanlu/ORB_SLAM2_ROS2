@@ -9,7 +9,8 @@
         "/opt/ros/humble/include/**",
         "/home/lucky-lu/Projects/ORB_SLAM2_ROS2/src/ORB_SLAM2/include/**",
         "/usr/include/**",
-        "${workspaceFolder}/install/orb_slam2_interfaces/include"
+        "${workspaceFolder}/install/orb_slam2_interfaces/include/**",
+        "${workspaceFolder}/src/ORB_SLAM2/proto/**"
       ],
       "name": "ros2",
       "intelliSenseMode": "gcc-x64",

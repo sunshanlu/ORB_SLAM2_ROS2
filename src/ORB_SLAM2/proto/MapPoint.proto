@@ -1,0 +1,33 @@
+// mappoint.proto
+syntax = "proto3";
+
+import "Keyframe.proto";
+
+package orbslam2;
+
+message Vector3 {
+  float x = 1;
+  float y = 2;
+  float z = 3;
+}
+
+message MapPointData {
+  // 基本信息
+  uint64 id = 1;
+  float max_distance = 2;
+  float min_distance = 3;
+
+  uint64 ref_kf_id = 4;        //< 参考关键帧id
+  uint64 ref_feat_id = 5;      //< 参考关键帧对应的特征点索引
+  int32 matches_in_track = 6;  //< 跟踪过程中被匹配的次数
+  int32 inliers_in_track = 7;  //< 跟踪过程中被判断为内点的次数
+  Vector3 position = 8;        //< 世界坐标系下3D位置
+  Vector3 view_direction = 9;  //< 地图点到参考关键帧观测方向
+
+  // 描述子
+  Descriptor desc = 10;
+}
+
+message MapPointList {
+  repeated MapPointData mappoints = 1;
+}

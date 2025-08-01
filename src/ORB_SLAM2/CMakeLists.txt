@@ -6,6 +6,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_BUILD_TYPE Release)
 
 option(BUILD_EXAMPLES "Build Example Application for test? " ON)
+option(BUILD_TESTS "Build Tests? " ON)
 
 # find dependencies
 find_package(ament_cmake REQUIRED)
@@ -18,6 +19,7 @@ find_package(Pangolin REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(orb_slam2_interfaces REQUIRED)
+find_package(Protobuf REQUIRED)
 
 add_library(DEPEND_LIBS INTERFACE)
 target_link_libraries(
@@ -29,14 +31,21 @@ target_link_libraries(
               g2o::types_sim3
               ${Pangolin_LIBRARIES}
               ${OpenCV_LIBS}
-              ${DBoW3_LIBS})
+              ${DBoW3_LIBS}
+              ${Protobuf_LIBRARIES})
 
-file(GLOB HEADER_FILE src/*.cc)
 file(GLOB SOURCE_FILE src/*.cc)
-add_library(${PROJECT_NAME} ${SOURCE_FILE} ${HEADER_FILE})
+file(GLOB PROTO_FILE proto/*.cc)
+
+add_library(${PROJECT_NAME} ${SOURCE_FILE} ${PROTO_FILE})
 target_link_libraries(${PROJECT_NAME} DEPEND_LIBS)
-target_include_directories(${PROJECT_NAME} PUBLIC ${OpenCV_INCLUDE_DIRS}
-                                                  ${DBoW3_INCLUDE_DIRS} include)
+target_include_directories(
+    ${PROJECT_NAME}
+    PUBLIC ${OpenCV_INCLUDE_DIRS} ${DBoW3_INCLUDE_DIRS}
+           ${CMAKE_CURRENT_SOURCE_DIR}/include 
+           ${Protobuf_INCLUDE_DIRS}
+           ${CMAKE_CURRENT_SOURCE_DIR}/proto)
+
 ament_target_dependencies(${PROJECT_NAME} rclcpp geometry_msgs cv_bridge
                           orb_slam2_interfaces)
 
@@ -49,6 +58,10 @@ if(BUILD_EXAMPLES)
     target_link_libraries(ros2_example PUBLIC ${PROJECT_NAME})
     install(TARGETS ${PROJECT_NAME} kitti_example tum_example ros2_example
             DESTINATION lib/${PROJECT_NAME})
+endif()
+
+if(BUILD_TESTS)
+    add_subdirectory(test)
 endif()
 
 ament_package()
